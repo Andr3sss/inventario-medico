@@ -1,0 +1,32 @@
+{
+  // Usa el TypeScript del proyecto y no el que trae VS Code. Es la causa numero
+  // uno de errores que aparecen en el editor pero no en la terminal.
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+
+  "eslint.useFlatConfig": true,
+  "eslint.workingDirectories": [{ "mode": "auto" }],
+
+  // Rutas que no vale la pena indexar ni buscar.
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/dist-tipos": true,
+    "**/seeds/salida": true,
+    "package-lock.json": true
+  },
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/dist/**": true
+  }
+}

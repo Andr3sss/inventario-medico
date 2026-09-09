@@ -1,0 +1,28 @@
+name: Verificar
+
+# Corre lint, tipos y pruebas en cada push y en cada pull request.
+# Si algo se rompe, se entera GitHub antes que el cliente.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # ci instala exactamente lo que dice package-lock.json, sin resolver
+      # versiones nuevas. Es lo que hace reproducible la compilacion.
+      - run: npm ci
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build

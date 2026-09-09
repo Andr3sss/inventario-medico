@@ -1,0 +1,37 @@
+{
+  "name": "crearcos-inventario",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Prototipo de inventario medico/quirurgico offline-first para Crearcos",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "seeds"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --build --force",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "seed": "tsx seeds/src/cli.ts",
+    "verificar": "npm run lint && npm run typecheck && npm run test",
+    "dev": "npm run dev --workspace @crearcos/web",
+    "build": "npm run build --workspace @crearcos/web"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.10.2",
+    "eslint": "^10.10.0",
+    "fake-indexeddb": "^6.2.5",
+    "prettier": "^3.4.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,89 @@
+:root {
+  --verde-950: #0b2724;
+  --verde-900: #10332f;
+  --verde-800: #16443d;
+  --verde-700: #1b5a50;
+  --verde-600: #267266;
+  --verde-100: #ddefe9;
+  --verde-50: #f0f8f5;
+
+  --tinta-950: #111a1b;
+  --tinta-800: #263334;
+  --tinta-700: #3c4a4b;
+  --tinta-600: #596667;
+  --tinta-500: #718081;
+  --tinta-400: #98a3a3;
+  --tinta-300: #bbc3c2;
+  --tinta-200: #d8dedd;
+  --tinta-150: #e4e8e7;
+  --tinta-100: #edf0ef;
+  --tinta-75: #f3f5f4;
+  --tinta-50: #f7f9f8;
+  --blanco: #ffffff;
+
+  --azul-700: #1d5d7a;
+  --azul-100: #dceef6;
+  --azul-50: #eff8fb;
+  --ambar-700: #8b5a14;
+  --ambar-100: #f8e9c9;
+  --ambar-50: #fff9ed;
+  --rojo-700: #9d3838;
+  --rojo-100: #f5dddd;
+  --rojo-50: #fff4f3;
+  --violeta-700: #655091;
+  --violeta-100: #ebe4f7;
+  --violeta-50: #f8f5fc;
+
+  --texto: var(--tinta-950);
+  --texto-suave: var(--tinta-600);
+  --superficie: var(--tinta-50);
+  --superficie-elevada: var(--blanco);
+  --linea: var(--tinta-150);
+  --foco: #367f99;
+
+  --sidebar: 230px;
+  --topbar: 58px;
+  --radio-l: 9px;
+  --sombra-s: 0 1px 2px rgba(14, 35, 32, 0.035);
+  --sombra-m: 0 16px 42px rgba(14, 35, 32, 0.16);
+
+  --sidebar: 232px;
+  --topbar: 58px;
+  --radio-l: 10px;
+  --sombra-s: 0 1px 2px rgba(17, 42, 38, 0.035);
+  --sombra-m: 0 16px 42px rgba(10, 35, 31, 0.16);
+
+  --texto-xs: 0.72rem;
+  --texto-s: 0.82rem;
+  --texto-m: 1rem;
+  --texto-l: 1.05rem;
+  --texto-xl: 1.38rem;
+  --texto-xxl: 1.7rem;
+
+  --tipo-ui: 'Atkinson Hyperlegible', 'Segoe UI', sans-serif;
+  --tipo-codigo: 'IBM Plex Mono', ui-monospace, monospace;
+  --texto-xs: 0.72rem;
+  --texto-s: 0.82rem;
+  --texto-m: 0.94rem;
+  --texto-l: 1.08rem;
+  --texto-xl: 1.35rem;
+  --texto-xxl: clamp(1.65rem, 2.2vw, 2.05rem);
+
+  --paso-1: 4px;
+  --paso-2: 8px;
+  --paso-3: 12px;
+  --paso-4: 16px;
+  --paso-5: 20px;
+  --paso-6: 24px;
+  --paso-7: 32px;
+  --paso-8: 40px;
+
+  --radio-s: 6px;
+  --radio: 9px;
+  --radio-l: 13px;
+  --sombra-s: 0 1px 2px rgba(10, 30, 27, 0.04);
+  --sombra-m: 0 14px 36px rgba(10, 30, 27, 0.1), 0 2px 8px rgba(10, 30, 27, 0.05);
+  --sidebar: 238px;
+  --topbar: 60px;
+  --toque: 44px;
+}

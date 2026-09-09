@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/data"
+    },
+    {
+      "path": "./seeds"
+    },
+    {
+      "path": "./apps/web"
+    }
+  ]
+}

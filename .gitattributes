@@ -1,0 +1,10 @@
+# Normaliza los finales de linea. Sin esto, un repositorio compartido entre
+# Windows y macOS marca archivos enteros como modificados sin que nadie los toque.
+* text=auto eol=lf
+
+# Binarios: no tocar nunca.
+*.png binary
+*.jpg binary
+*.woff binary
+*.woff2 binary
+*.zip binary

@@ -1,0 +1,18 @@
+# Dependencias
+node_modules/
+
+# Compilados
+dist/
+dist-tipos/
+*.tsbuildinfo
+
+# Salidas generadas
+seeds/salida/
+
+# Entorno local
+.env
+.env.local
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

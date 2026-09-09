@@ -1,0 +1,14 @@
+{
+  "name": "@crearcos/seeds",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@crearcos/core": "*"
+  },
+  "exports": {
+    ".": "./src/generar.ts"
+  },
+  "main": "./src/generar.ts",
+  "types": "./src/generar.ts"
+}
