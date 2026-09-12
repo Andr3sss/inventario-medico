@@ -132,7 +132,7 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 
 ### P0-03. Resolver la autenticación realmente sin conexión
 
-> **Estado de implementación (11 de septiembre de 2026):** en progreso. El
+> **Estado de implementación (12 de septiembre de 2026):** en progreso. El
 > punto de transferencia incluye el núcleo criptográfico compartido, el modelo
 > Dexie v8 para PIN derivado y auditoría, y el servicio local inicial de
 > enrolamiento, bloqueo, vigencia y revocación. Todavía faltan integrar el flujo
