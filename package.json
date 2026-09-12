@@ -21,7 +21,9 @@
     "seed": "tsx seeds/src/cli.ts",
     "verificar": "npm run lint && npm run typecheck && npm run test",
     "dev": "npm run dev --workspace @crearcos/web",
-    "build": "npm run build --workspace @crearcos/web"
+    "build": "npm run build --workspace @crearcos/web",
+    "supabase:bootstrap:demo": "node scripts/supabase/bootstrap-demo.mjs",
+    "supabase:bootstrap:production": "node scripts/supabase/bootstrap-production.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -29,9 +31,11 @@
     "eslint": "^10.10.0",
     "fake-indexeddb": "^6.2.5",
     "prettier": "^3.4.2",
+    "supabase": "2.117.0",
     "tsx": "^4.23.13",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.70.0",
-    "vitest": "^2.1.8"
+    "vite": "^6.4.3",
+    "vitest": "^5.0.0"
   }
 }
