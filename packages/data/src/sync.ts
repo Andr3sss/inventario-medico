@@ -10,8 +10,11 @@ import {
   serializar,
   sku as crearSku,
   usuarioId as crearUsuarioId,
+  esquemaEvento,
+  esquemaEventoMaleta,
   type DispositivoId,
   type Evento,
+  type EventoMaleta,
   type Factura,
   type Hospital,
   type LoteSync,
@@ -369,15 +372,9 @@ async function marcarConflictos(
         };
         const transicion = aplicarEvento(pieza, evento);
         if (!transicion.ok) return;
-        await db.eventos.add({
-          eventoId: evento.sobre.eventoId,
-          operacionId: evento.sobre.eventoId,
-          codigo: pieza.codigo,
-          tipo: evento.cuerpo.tipo,
-          hlc: evento.sobre.hlc,
-          evento,
-          enviado: 1,
-        });
+        // La transicion se refleja de inmediato, pero no se agrega este evento
+        // sintetico al historial: el PULL proyecta el evento central canonico y
+        // asi todos los dispositivos terminan con exactamente el mismo log.
         await db.piezas.put(transicion.valor);
         await db.conflictos.put({
           conflictoId: conflicto.conflictoId,
@@ -476,6 +473,7 @@ async function proyectarInbox(
           db.replicaCentral,
           db.piezas,
           db.maletas,
+          db.eventos,
           db.catalogo,
           db.hospitales,
           db.excepcionesPrecio,
@@ -576,9 +574,110 @@ async function proyectarCambio(
     await proyectarPerfil(db, fila);
   } else if (fila.entidadTipo === 'CONFLICTO') {
     await proyectarConflicto(db, fila, opciones.ahora());
+  } else if (fila.entidadTipo === 'EVENTO_DOMINIO') {
+    await proyectarEventoDominio(db, fila, opciones);
   }
   await db.inboxSync.update(fila.id, { aplicado: 1, error: null });
   return 'APLICADO';
+}
+
+type ResultadoEventoCentral = 'ACEPTADO' | 'RECHAZADO' | 'CONFLICTO';
+
+/**
+ * Proyecta el sobre central de auditoria en el log local especializado.
+ * El UUID del evento es la clave idempotente; una reutilizacion con contenido
+ * distinto se deja en inbox con error en vez de alterar un historial previo.
+ */
+async function proyectarEventoDominio(
+  db: BaseLocal,
+  fila: FilaInboxSync,
+  opciones: OpcionesSync,
+): Promise<void> {
+  if (fila.eliminado) throw new Error('EVENTO_DOMINIO_NO_PUEDE_ELIMINARSE');
+  const central = registro(fila.payload);
+  const eventoId = cadena(central?.id);
+  const operacionId = cadena(central?.operacion_id);
+  const tipoAgregado = cadena(central?.tipo_agregado);
+  const resultado = resultadoEventoCentral(central?.resultado);
+  const recibidoEnServidor = cadena(central?.recibido_en_servidor);
+  if (
+    central === null ||
+    eventoId === null ||
+    eventoId !== fila.entidadId ||
+    operacionId === null ||
+    tipoAgregado === null ||
+    resultado === null
+  ) {
+    throw new Error('EVENTO_DOMINIO_INVALIDO');
+  }
+
+  if (tipoAgregado === 'PIEZA') {
+    const validado = esquemaEvento.safeParse(central.payload);
+    if (!validado.success || validado.data.sobre.eventoId !== eventoId) {
+      throw new Error('EVENTO_PIEZA_REMOTO_INVALIDO');
+    }
+    const evento = validado.data as Evento;
+    const existente = await db.eventos.get(evento.sobre.eventoId);
+    if (existente !== undefined && jsonCanonico(existente.evento) !== jsonCanonico(evento)) {
+      throw new Error('EVENTO_PIEZA_REMOTO_DIVERGENTE');
+    }
+    await db.eventos.put({
+      eventoId: evento.sobre.eventoId,
+      operacionId,
+      codigo: evento.cuerpo.codigo,
+      tipo: evento.cuerpo.tipo,
+      hlc: evento.sobre.hlc,
+      evento,
+      resultadoCentral: resultado,
+      ...(recibidoEnServidor === null ? {} : { recibidoEnServidor }),
+      enviado: 1,
+    });
+    await fusionarRelojRemoto(db, opciones.dispositivoId, evento.sobre.hlc, opciones.ahora());
+    return;
+  }
+
+  if (tipoAgregado === 'MALETA') {
+    const validado = esquemaEventoMaleta.safeParse(central.payload);
+    if (!validado.success || validado.data.sobre.eventoId !== eventoId) {
+      throw new Error('EVENTO_MALETA_REMOTO_INVALIDO');
+    }
+    const evento = validado.data as EventoMaleta;
+    const existente = await db.eventosMaleta.get(evento.sobre.eventoId);
+    if (existente !== undefined && jsonCanonico(existente.evento) !== jsonCanonico(evento)) {
+      throw new Error('EVENTO_MALETA_REMOTO_DIVERGENTE');
+    }
+    await db.eventosMaleta.put({
+      eventoId: evento.sobre.eventoId,
+      operacionId,
+      maletaId: evento.cuerpo.maletaId,
+      tipo: evento.cuerpo.tipo,
+      hlc: evento.sobre.hlc,
+      evento,
+      resultadoCentral: resultado,
+      ...(recibidoEnServidor === null ? {} : { recibidoEnServidor }),
+      enviado: 1,
+    });
+    await fusionarRelojRemoto(db, opciones.dispositivoId, evento.sobre.hlc, opciones.ahora());
+    return;
+  }
+
+  throw new Error('TIPO_AGREGADO_HISTORICO_NO_SOPORTADO');
+}
+
+function resultadoEventoCentral(valor: unknown): ResultadoEventoCentral | null {
+  return valor === 'ACEPTADO' || valor === 'RECHAZADO' || valor === 'CONFLICTO' ? valor : null;
+}
+
+function jsonCanonico(valor: unknown): string {
+  if (Array.isArray(valor)) return `[${valor.map(jsonCanonico).join(',')}]`;
+  const objeto = registro(valor);
+  if (objeto !== null) {
+    return `{${Object.keys(objeto)
+      .sort()
+      .map((clave) => `${JSON.stringify(clave)}:${jsonCanonico(objeto[clave])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(valor);
 }
 
 async function proyectarExcepcion(db: BaseLocal, fila: FilaInboxSync): Promise<void> {

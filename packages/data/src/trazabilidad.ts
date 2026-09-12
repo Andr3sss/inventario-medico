@@ -1,5 +1,10 @@
 import Dexie from 'dexie';
-import { codigoPieza as crearCodigoPieza, type Evento } from '@crearcos/core';
+import {
+  codigoPieza as crearCodigoPieza,
+  maletaId as crearMaletaId,
+  type Evento,
+  type EventoMaleta,
+} from '@crearcos/core';
 import type { BaseLocal } from './db.js';
 
 /**
@@ -16,6 +21,19 @@ export async function historialDePieza(db: BaseLocal, codigo: string): Promise<r
   const filas = await db.eventos
     .where('[codigo+hlc]')
     .between([codigoPieza, Dexie.minKey], [codigoPieza, Dexie.maxKey])
+    .toArray();
+  return filas.map((fila) => fila.evento);
+}
+
+/** Historial completo de una maleta, con el mismo orden HLC en todo dispositivo. */
+export async function historialDeMaleta(
+  db: BaseLocal,
+  id: string,
+): Promise<readonly EventoMaleta[]> {
+  const idMaleta = crearMaletaId(id);
+  const filas = await db.eventosMaleta
+    .where('[maletaId+hlc]')
+    .between([idMaleta, Dexie.minKey], [idMaleta, Dexie.maxKey])
     .toArray();
   return filas.map((fila) => fila.evento);
 }

@@ -241,17 +241,21 @@ maquina propia, cada pantalla que necesitara ese estado tendria que
 reinventar la misma logica de inferencia, y dos pantallas la reinventarian
 distinto.
 
-## 31. Los eventos de maleta se registran localmente pero todavia no sincronizan
+## 31. Pieza y maleta conservan el mismo historial autoritativo en cada dispositivo
 
-`eventosMaleta` es una tabla de solo agregado, igual en espiritu al log de
-eventos de Pieza, pero **no** pasa por el `outbox` ni por `sincronizar()`.
-Es una limitacion reconocida, no un olvido: extender el motor de
-sincronizacion (probado con 11 casos) para un segundo tipo de entidad es
-trabajo aparte, y hacerlo mal arriesgaba el motor que ya funciona. Mientras
-tanto, la maleta como agregado (responsable, hospital, momento de cierre) es
-local al dispositivo que la abrio; lo que si sincroniza ya hoy es el
-movimiento de cada pieza (`ESCANEO_ARMADO`, `CONFIRMAR_SALIDA`, etc.), que es
-el dato que de verdad importa para la trazabilidad del instrumental.
+El servidor publica cada `EVENTO_DOMINIO` dentro del flujo normal de cambios.
+El cliente valida el contrato del evento y lo proyecta por UUID en `eventos` o
+`eventosMaleta`; una repeticion es idempotente y una colision con contenido
+distinto queda en el inbox como error, sin sobrescribir la evidencia local.
+Los historiales se ordenan siempre por HLC y no por el reloj de pared.
+
+Dexie v6 elimina los marcadores `CONFLICTO_SYNC` que versiones anteriores
+fabricaban solo en el dispositivo afectado. El estado de conflicto se aplica de
+inmediato, pero la evidencia visible del historial procede del evento central
+canonico recibido por PULL, para que todos los dispositivos converjan.
+La migracion reinicia una vez el cursor para recuperar, en paginas de 100
+commits, eventos que un cliente anterior hubiera ignorado o que el PULL
+freelance anterior no hubiera entregado.
 
 ## 32. Un codigo corto no es "los primeros N caracteres" ni "los ultimos N caracteres" de un UUID
 

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
-import type { EstadoMaleta, Hospital, Maleta, Pieza } from '@crearcos/core';
+import type { EstadoMaleta, EventoMaleta, Hospital, Maleta, Pieza } from '@crearcos/core';
 import {
   componentesDeKit,
   confirmarSalidaMaleta,
   crearMaleta,
   escanearArmado,
+  historialDeMaleta,
   listarCatalogo,
   listarHospitales,
   listarMaletas,
@@ -49,6 +50,13 @@ interface SelectorKit {
     readonly producto: FilaCatalogo | undefined;
   }[];
 }
+
+const ETIQUETA_EVENTO_MALETA: Readonly<Record<EventoMaleta['cuerpo']['tipo'], string>> = {
+  MALETA_ABIERTA: 'Maleta creada',
+  MALETA_SALIO: 'Salida confirmada',
+  MALETA_CERRADA: 'Procedimiento cerrado',
+  MALETA_CANCELADA: 'Maleta cancelada',
+};
 
 function resultadoVisual(respuesta: RespuestaEscaneo, nombre?: string): ResultadoVisualEscaneo {
   const referencia =
@@ -95,6 +103,7 @@ export function Maletas(): ReactElement {
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [filtro, setFiltro] = useState<'ACTIVAS' | EstadoMaleta>('ACTIVAS');
   const [armando, setArmando] = useState<DetalleMaleta | null>(null);
+  const [historialMaleta, setHistorialMaleta] = useState<readonly EventoMaleta[]>([]);
   const [resultado, setResultado] = useState<ResultadoVisualEscaneo | null>(null);
   const [procesando, setProcesando] = useState(false);
   const [crearAbierto, setCrearAbierto] = useState(false);
@@ -161,14 +170,21 @@ export function Maletas(): ReactElement {
   const cerradas = maletas.filter(({ maleta }) => maleta.estado === 'CERRADA').length;
 
   const refrescarDetalle = async (maletaId: string): Promise<void> => {
-    const detalle = await obtenerMaleta(db, maletaId);
+    const [detalle, historial] = await Promise.all([
+      obtenerMaleta(db, maletaId),
+      historialDeMaleta(db, maletaId),
+    ]);
     if (detalle !== undefined) setArmando(detalle);
+    setHistorialMaleta(historial);
   };
 
   const abrirMaleta = async (maleta: Maleta): Promise<void> => {
     setMensajeAccion(null);
     try {
-      const detalle = await obtenerMaleta(db, maleta.id);
+      const [detalle, historial] = await Promise.all([
+        obtenerMaleta(db, maleta.id),
+        historialDeMaleta(db, maleta.id),
+      ]);
       if (detalle === undefined) {
         setMensajeAccion({
           tipo: 'error',
@@ -178,6 +194,7 @@ export function Maletas(): ReactElement {
         return;
       }
       setArmando(detalle);
+      setHistorialMaleta(historial);
     } catch (error) {
       setMensajeAccion({
         tipo: 'error',
@@ -512,6 +529,42 @@ export function Maletas(): ReactElement {
             )}
           </aside>
         </div>
+        <section className="panel historial">
+          <header className="panel__cabecera historial__cabecera">
+            <div>
+              <p className="sobrelinea">Trazabilidad sincronizada</p>
+              <h2>Historial de la maleta</h2>
+            </div>
+            <Estado tono="neutral">
+              {historialMaleta.length} {historialMaleta.length === 1 ? 'evento' : 'eventos'}
+            </Estado>
+          </header>
+          {historialMaleta.length === 0 ? (
+            <Vacio
+              icono="reloj"
+              titulo="Sin eventos de trazabilidad"
+              texto="El historial aparecerá cuando exista un evento local o sincronizado."
+            />
+          ) : (
+            <div className="timeline">
+              {historialMaleta.map((evento, indice) => (
+                <article
+                  className={`timeline__item${indice === historialMaleta.length - 1 ? ' timeline__item--actual' : ''}`}
+                  key={evento.sobre.eventoId}
+                >
+                  <span className="timeline__marca">
+                    <Icono nombre="check" tamano={13} />
+                  </span>
+                  <span>
+                    <strong>{ETIQUETA_EVENTO_MALETA[evento.cuerpo.tipo]}</strong>
+                    <small>{formatearFecha(evento.sobre.registradoEn)}</small>
+                  </span>
+                  <code>{evento.sobre.hlc}</code>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
         <footer className="barra-accion">
           <span>
             <Avatar
@@ -740,7 +793,7 @@ export function Maletas(): ReactElement {
           <Vacio
             icono="maleta"
             titulo="No hay maletas en este estado"
-            texto="Crea una nueva maleta o cambia el filtro para revisar el historial local."
+            texto="Crea una nueva maleta o cambia el filtro para revisar el historial disponible."
           />
         ) : (
           <div className="maletas-lista">

@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
-select plan(41);
+select plan(42);
 
 select has_table('public', nombre, format('existe public.%s', nombre))
 from unnest(array[
@@ -46,6 +46,16 @@ select ok(
 select ok(
   not has_table_privilege('anon', 'public.piezas', 'select'),
   'anon no puede leer inventario'
+);
+
+select ok(
+  position(
+    'ed.maleta_id = v_maleta_id'
+    in pg_get_functiondef(
+      'public.obtener_cambios_freelance(uuid,uuid,bigint,integer)'::regprocedure
+    )
+  ) > 0,
+  'el pull freelance incluye solo eventos de dominio de su maleta'
 );
 
 select * from finish();

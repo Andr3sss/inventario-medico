@@ -88,6 +88,13 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 
 ### P0-01. Completar la trazabilidad histórica entre dispositivos
 
+> **Estado de implementación (11 de septiembre de 2026):** resuelto técnicamente
+> en la rama de trabajo. El cliente proyecta `EVENTO_DOMINIO` de piezas y maletas de forma
+> idempotente, Dexie v6 ordena ambos historiales por HLC y el PULL freelance
+> incluye únicamente los eventos de su maleta. Antes del cierre productivo aún
+> deben aplicarse la migración en un entorno no productivo y ejecutar la prueba
+> E2E con dos dispositivos físicos.
+
 **Carencia:** `historialDePieza` y el historial de maletas consultan eventos almacenados localmente. La sincronización replica estados como pieza, maleta, producto, factura y conflicto, pero el registro central de eventos de dominio no forma parte de la proyección normal de cambios hacia todos los dispositivos. Un segundo dispositivo puede conocer el estado actual sin poder reconstruir el historial completo que se originó en el primero.
 
 **Riesgo:** incumplir el requisito de trazabilidad completa, dificultar auditorías y mostrar historiales distintos según el dispositivo.

@@ -127,6 +127,7 @@ export async function crearMaleta(
         operacionId: evento.sobre.eventoId,
         maletaId: id,
         tipo: 'MALETA_ABIERTA',
+        hlc: evento.sobre.hlc,
         evento,
         enviado: 0,
       });
@@ -408,6 +409,7 @@ export async function confirmarSalidaMaleta(
         operacionId,
         maletaId: idMaleta,
         tipo: 'MALETA_SALIO',
+        hlc: evento.sobre.hlc,
         evento,
         enviado: 0,
       });
@@ -481,6 +483,7 @@ export async function cancelarMaleta(
         operacionId,
         maletaId: idMaleta,
         tipo: 'MALETA_CANCELADA',
+        hlc: evento.sobre.hlc,
         evento,
         enviado: 0,
       });

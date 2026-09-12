@@ -135,6 +135,7 @@ describe('rechazos definitivos', () => {
 describe('conflictos', () => {
   it('congela la pieza y abre el registro para la Coordinadora', async () => {
     const id = await escanearArmado();
+    const eventosAntes = await db.eventos.count();
     const transporte = transporteQue(async () =>
       Promise.resolve({
         ...respuestaVacia,
@@ -155,6 +156,13 @@ describe('conflictos', () => {
     expect((await db.piezas.get(CODIGO))?.estado).toBe('EN_CONFLICTO');
     expect((await db.conflictos.get('cf-1'))?.estado).toBe('ABIERTO');
     expect(await db.outbox.count()).toBe(0);
+    expect(await db.eventos.count()).toBe(eventosAntes);
+    expect(
+      await db.eventos
+        .toCollection()
+        .filter((fila) => fila.tipo === 'CONFLICTO_SYNC')
+        .count(),
+    ).toBe(0);
   });
 
   it('bloquea cualquier escaneo posterior sobre la pieza congelada', async () => {

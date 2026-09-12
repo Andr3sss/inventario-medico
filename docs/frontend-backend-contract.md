@@ -489,7 +489,9 @@ Errores: `CONFLICTO_NO_ENCONTRADO`, `CONFLICTO_YA_RESUELTO`,
 
 Timeline completo de una pieza, **mas antiguo primero**, ordenado por HLC
 (nunca por reloj de pared — un celular con la hora mal no puede desordenar el
-historial). Vacio si el codigo no existe o no tiene eventos.
+historial). Incluye los eventos locales y los recibidos por PULL desde otros
+dispositivos, deduplicados por `eventoId`. Vacio si el codigo no existe o no
+tiene eventos.
 
 ```ts
 interface Evento {
@@ -504,6 +506,14 @@ INGRESO_REPROCESO | FIN_REPROCESO | CONFLICTO_SYNC | RESOLUCION_MANUAL |
 MARCAR_EXTRAVIADA`. Codex define la etiqueta visible de cada uno (esto es
 vocabulario del dominio, no diseño, pero el texto final para el usuario si es
 decision de Codex).
+
+### `historialDeMaleta(db, maletaId) → Promise<readonly EventoMaleta[]>`
+
+Timeline completo de una maleta, **mas antiguo primero**, ordenado por HLC e
+incluyendo eventos remotos proyectados por el motor de sincronizacion.
+
+`EventoMaleta` admite `MALETA_ABIERTA`, `MALETA_SALIO`, `MALETA_CERRADA` y
+`MALETA_CANCELADA`.
 
 ## 10. Usuarios (`usuarios.ts`) — autoservicio del Administrador
 

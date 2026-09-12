@@ -2,9 +2,10 @@
 
 ## Modelo local
 
-Dexie v5 conserva:
+Dexie v6 conserva:
 
-- `eventos` y `eventosMaleta`: logs locales con `operacionId` y ACK.
+- `eventos` y `eventosMaleta`: logs locales y remotos con `operacionId`, HLC y
+  ACK.
 - `outbox`: compatibilidad y diagnóstico por evento de pieza.
 - `operacionesSync`: unidad durable y atómica de PUSH.
 - `inboxSync`: cambios centrales crudos, persistidos antes del cursor.
@@ -62,6 +63,15 @@ Por ello el cursor puede avanzar aunque una proyección se posponga: el payload
 ya está durablemente en IndexedDB. El siguiente ciclo intenta de nuevo el inbox.
 Los HLC remotos se fusionan con el reloj local antes de emitir eventos nuevos.
 
+Cada cambio `EVENTO_DOMINIO` se valida contra el contrato del agregado y se
+proyecta por UUID en `eventos` o `eventosMaleta`. Repetir el mismo evento es
+idempotente; reutilizar su UUID con contenido distinto deja la entrada en el
+inbox con error y no reemplaza la evidencia existente. Ambos historiales se
+leen ordenados por HLC, con independencia del dispositivo que creó el evento.
+Al migrar a Dexie v6 se reinicia una sola vez el cursor y se reprocesan las
+entradas históricas ya conservadas; la recuperación completa continúa paginada
+en bloques de hasta 100 commits.
+
 ## Sesiones freelance
 
 El acceso público usa `freelance-access`, no una cuenta permanente en
@@ -72,8 +82,8 @@ limitada al mismo agregado y dispositivo.
 El PUSH freelance solo acepta operaciones autorizadas sobre esa maleta y llama
 `procesar_operacion_freelance`. El PULL usa `obtener_cambios_freelance`: conserva
 el cursor monotónico global, pero filtra los payloads a la maleta, sus piezas,
-factura y ciclos asociados. La Edge Function nunca devuelve el hash ni usa una
-clave privilegiada en el navegador.
+factura, ciclos y eventos de dominio asociados. La Edge Function nunca devuelve
+el hash ni usa una clave privilegiada en el navegador.
 
 ## Conflictos
 

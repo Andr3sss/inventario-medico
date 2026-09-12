@@ -260,6 +260,7 @@ export async function cerrarMaleta(
         operacionId,
         maletaId: maleta.id,
         tipo: 'MALETA_CERRADA',
+        hlc: eventoMaleta.sobre.hlc,
         evento: eventoMaleta,
         enviado: 0,
       });

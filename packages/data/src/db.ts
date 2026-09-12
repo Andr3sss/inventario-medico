@@ -30,6 +30,9 @@ export interface FilaEvento {
   readonly tipo: string;
   readonly hlc: string;
   readonly evento: Evento;
+  /** Resultado autoritativo del servidor, disponible despues del PULL. */
+  readonly resultadoCentral?: 'ACEPTADO' | 'RECHAZADO' | 'CONFLICTO';
+  readonly recibidoEnServidor?: string;
   enviado: 0 | 1;
 }
 
@@ -91,9 +94,8 @@ export interface FilaMeta {
 }
 
 /**
- * Evento de maleta almacenado, espejo de FilaEvento. Log de solo agregado,
- * local por ahora: ver la nota "Pendiente" en sync.ts sobre por que todavia no
- * viaja por el mismo outbox que los eventos de pieza.
+ * Evento de maleta almacenado, espejo de FilaEvento. El HLC forma parte de la
+ * fila para consultar el historial remoto y local por el mismo orden total.
  */
 export interface FilaEventoMaleta {
   readonly eventoId: string;
@@ -101,7 +103,10 @@ export interface FilaEventoMaleta {
   readonly operacionId: string;
   readonly maletaId: string;
   readonly tipo: string;
+  readonly hlc: string;
   readonly evento: EventoMaleta;
+  readonly resultadoCentral?: 'ACEPTADO' | 'RECHAZADO' | 'CONFLICTO';
+  readonly recibidoEnServidor?: string;
   enviado: 0 | 1;
 }
 
@@ -282,6 +287,38 @@ export class BaseLocal extends Dexie {
             };
             Object.assign(fila, faltantes);
           });
+      });
+
+    // Version 6: historial de maletas ordenado por HLC, reproyeccion del
+    // historial central y limpieza de los marcadores de conflicto que versiones
+    // anteriores fabricaban solo en el cliente.
+    this.version(6)
+      .stores({
+        eventosMaleta: 'eventoId, operacionId, maletaId, hlc, enviado, [maletaId+hlc]',
+      })
+      .upgrade(async (transaccion) => {
+        await transaccion
+          .table<FilaEventoMaleta, string>('eventosMaleta')
+          .toCollection()
+          .modify((fila) => {
+            if (typeof fila.hlc !== 'string') {
+              Object.assign(fila, { hlc: fila.evento.sobre.hlc });
+            }
+          });
+        await transaccion
+          .table<FilaEvento, string>('eventos')
+          .toCollection()
+          .filter((fila) => fila.tipo === 'CONFLICTO_SYNC')
+          .delete();
+        await transaccion
+          .table<FilaInboxSync, string>('inboxSync')
+          .toCollection()
+          .filter((fila) => fila.entidadTipo === 'EVENTO_DOMINIO')
+          .modify({ aplicado: 0, error: null });
+        // Un PULL completo y paginado recupera tambien eventos que clientes
+        // freelance antiguos nunca recibieron. Los snapshots y eventos usan
+        // claves idempotentes, por lo que el replay no crea duplicados.
+        await transaccion.table<FilaMeta, string>('meta').delete('cursor-servidor');
       });
   }
 }

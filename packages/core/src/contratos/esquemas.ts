@@ -81,6 +81,31 @@ export const esquemaEvento = z.object({
   cuerpo: esquemaCuerpoEvento,
 });
 
+export const esquemaCuerpoEventoMaleta = z.discriminatedUnion('tipo', [
+  z.object({
+    tipo: z.literal('MALETA_ABIERTA'),
+    maletaId: textoNoVacio,
+    procedimiento: z.string().nullable(),
+  }),
+  z.object({ tipo: z.literal('MALETA_SALIO'), maletaId: textoNoVacio }),
+  z.object({
+    tipo: z.literal('MALETA_CERRADA'),
+    maletaId: textoNoVacio,
+    hospitalId: textoNoVacio,
+    facturaId: textoNoVacio.optional(),
+  }),
+  z.object({
+    tipo: z.literal('MALETA_CANCELADA'),
+    maletaId: textoNoVacio,
+    motivo: textoNoVacio,
+  }),
+]);
+
+export const esquemaEventoMaleta = z.object({
+  sobre: esquemaSobre,
+  cuerpo: esquemaCuerpoEventoMaleta,
+});
+
 /** Lote de sincronizacion. El servidor deduplica por eventoId, nunca por posicion. */
 export const esquemaLoteSync = z.object({
   dispositivoId: textoNoVacio,
