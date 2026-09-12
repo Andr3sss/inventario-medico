@@ -39,3 +39,31 @@ export function uuidV7(milis: number, azar: FuenteAzar = AZAR_CRIPTOGRAFICO): st
 
   return `${tiempo.slice(0, 8)}-${tiempo.slice(8, 12)}-${bloqueA}-${bloqueB}-${cola}`;
 }
+
+/**
+ * Codigo corto legible para entidades creadas en tiempo de uso (maleta,
+ * factura), a partir de un UUIDv7 ya generado.
+ *
+ * No es un slice de 8 caracteres: se probaron dos versiones que si lo eran y
+ * las dos colisionaron en pruebas con creaciones seguidas.
+ *  - Los primeros 8 caracteres son el timestamp de grano grueso, que casi no
+ *    cambia entre dos creaciones separadas por segundos.
+ *  - Los ultimos 8 (la cola aleatoria) tampoco alcanzan cuando la fuente de
+ *    azar es un generador simple (como el de las pruebas, un LCG): sus bits
+ *    bajos estan correlacionados entre llamadas consecutivas, una debilidad
+ *    conocida de los LCG, y eso volvio a colisionar.
+ *
+ * Por eso se pliegan con XOR los cuatro bloques de 32 bits del UUID completo
+ * (128 bits: tiempo + version/variante + aleatorio). El resultado usa todo el
+ * UUID en vez de una porcion, asi que no depende de que una parte especifica
+ * tenga buena entropia.
+ */
+export function codigoCortoDesde(uuid: string): string {
+  const hex = uuid.replace(/-/g, '');
+  let acumulado = 0;
+  for (let i = 0; i < hex.length; i += 8) {
+    const trozo = Number.parseInt(hex.slice(i, i + 8), 16);
+    acumulado = (acumulado ^ trozo) >>> 0;
+  }
+  return acumulado.toString(16).padStart(8, '0').toUpperCase();
+}

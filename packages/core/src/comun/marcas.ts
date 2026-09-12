@@ -18,6 +18,7 @@ export type UsuarioId = Marcado<string, 'UsuarioId'>;
 export type EventoId = Marcado<string, 'EventoId'>;
 export type DispositivoId = Marcado<string, 'DispositivoId'>;
 export type ConflictoId = Marcado<string, 'ConflictoId'>;
+export type FacturaId = Marcado<string, 'FacturaId'>;
 
 const noVacio = (valor: string, nombre: string): string => {
   const limpio = valor.trim();
@@ -36,3 +37,4 @@ export const eventoId = (v: string): EventoId => noVacio(v, 'EventoId') as Event
 export const dispositivoId = (v: string): DispositivoId =>
   noVacio(v, 'DispositivoId') as DispositivoId;
 export const conflictoId = (v: string): ConflictoId => noVacio(v, 'ConflictoId') as ConflictoId;
+export const facturaId = (v: string): FacturaId => noVacio(v, 'FacturaId') as FacturaId;

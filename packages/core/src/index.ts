@@ -1,6 +1,7 @@
 export * from './comun/resultado.js';
 export * from './comun/marcas.js';
 export * from './comun/dinero.js';
+export * from './comun/pagina.js';
 export * from './estados/tipos.js';
 export * from './estados/maquina.js';
 export * from './eventos/tipos.js';
@@ -9,3 +10,8 @@ export * from './precios/tipos.js';
 export * from './precios/motor.js';
 export * from './acceso/permisos.js';
 export * from './contratos/esquemas.js';
+export * from './maletas/tipos.js';
+export * from './maletas/eventos.js';
+export * from './maletas/maquina.js';
+export * from './facturacion/tipos.js';
+export * from './facturacion/motor.js';

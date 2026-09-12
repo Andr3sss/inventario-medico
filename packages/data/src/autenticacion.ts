@@ -21,6 +21,8 @@ export type CodigoErrorAuth =
   | 'USUARIO_INACTIVO'
   | 'USUARIO_BLOQUEADO'
   | 'ROL_NO_INICIA_SESION'
+  | 'PERFIL_NO_DISPONIBLE'
+  | 'SERVIDOR_NO_CONFIGURADO'
   | 'SESION_EXPIRADA'
   | 'SIN_SESION';
 
@@ -34,6 +36,8 @@ export interface ErrorAuth {
 export interface SesionActiva extends Sesion {
   readonly nombre: string;
   readonly expiraEn: number;
+  /** Credencial opaca de una sesión freelance central; nunca es un token de Auth. */
+  readonly sesionFreelanceId?: string;
 }
 
 export interface OpcionesAuth {
@@ -239,9 +243,15 @@ const CLAVE_DISPOSITIVO = 'dispositivo-id';
 export async function idDispositivo(db: BaseLocal): Promise<Sesion['dispositivoId']> {
   const guardado = await db.meta.get(CLAVE_DISPOSITIVO);
   if (typeof guardado?.valor === 'string') {
-    return guardado.valor as Sesion['dispositivoId'];
+    const normalizado = guardado.valor.startsWith('disp-')
+      ? guardado.valor.slice('disp-'.length)
+      : guardado.valor;
+    if (normalizado !== guardado.valor) {
+      await db.meta.put({ clave: CLAVE_DISPOSITIVO, valor: normalizado });
+    }
+    return normalizado as Sesion['dispositivoId'];
   }
-  const nuevo = `disp-${globalThis.crypto.randomUUID()}`;
+  const nuevo = globalThis.crypto.randomUUID();
   await db.meta.put({ clave: CLAVE_DISPOSITIVO, valor: nuevo });
   return nuevo as Sesion['dispositivoId'];
 }

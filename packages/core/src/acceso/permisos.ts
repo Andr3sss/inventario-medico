@@ -13,7 +13,8 @@ export type Area =
   | 'reprocesamiento'
   | 'conflictos'
   | 'facturacion'
-  | 'usuarios';
+  | 'usuarios'
+  | 'hospitales';
 
 export const AREAS: Readonly<Record<Area, { readonly titulo: string; readonly ruta: string }>> = {
   tablero: { titulo: 'Tablero', ruta: '/tablero' },
@@ -24,6 +25,11 @@ export const AREAS: Readonly<Record<Area, { readonly titulo: string; readonly ru
   conflictos: { titulo: 'Conflictos', ruta: '/conflictos' },
   facturacion: { titulo: 'Facturacion', ruta: '/facturacion' },
   usuarios: { titulo: 'Usuarios', ruta: '/usuarios' },
+  // Administra hospitales/nivel de precio por defecto (brief §7). Vive junto a
+  // Usuarios porque las dos son pantallas de autoservicio del Administrador
+  // sobre datos maestros, no operativas del dia a dia (decisiones.md, punto
+  // antes abierto "donde vive en la navegacion la administracion de hospitales").
+  hospitales: { titulo: 'Hospitales', ruta: '/hospitales' },
 };
 
 /**
@@ -37,7 +43,7 @@ export const AREAS: Readonly<Record<Area, { readonly titulo: string; readonly ru
  */
 const MAPA: Readonly<Record<Rol, readonly Area[]>> = {
   SISTEMA: [],
-  ADMINISTRADOR: ['usuarios', 'inventario', 'tablero'],
+  ADMINISTRADOR: ['usuarios', 'inventario', 'hospitales', 'tablero'],
   AUXILIAR: ['maletas', 'cirugia', 'inventario'],
   COORDINADORA: ['conflictos', 'reprocesamiento', 'maletas', 'inventario', 'tablero'],
   CONTABLE: ['facturacion', 'tablero'],

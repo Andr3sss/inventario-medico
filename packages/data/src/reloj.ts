@@ -1,4 +1,11 @@
-import { hlcInicial, marcar, serializar, type DispositivoId, type Hlc } from '@crearcos/core';
+import {
+  hlcInicial,
+  marcar,
+  recibir,
+  serializar,
+  type DispositivoId,
+  type Hlc,
+} from '@crearcos/core';
 import { CLAVE_RELOJ, type BaseLocal } from './db.js';
 
 /**
@@ -29,6 +36,36 @@ export async function avanzarReloj(
 ): Promise<Hlc> {
   const actual = await leerReloj(db, dispositivo);
   const siguiente = marcar(actual, relojPared);
+  await db.meta.put({ clave: CLAVE_RELOJ, valor: siguiente });
+  return siguiente;
+}
+
+/** Incorpora un HLC confirmado por el servidor antes de emitir eventos nuevos. */
+export async function fusionarRelojRemoto(
+  db: BaseLocal,
+  dispositivo: DispositivoId,
+  remotoSerializado: string,
+  relojPared: number,
+): Promise<Hlc> {
+  const partes = remotoSerializado.split(':');
+  const milis = Number.parseInt(partes[0] ?? '', 10);
+  const contador = Number.parseInt(partes[1] ?? '', 10);
+  const dispositivoRemoto = partes.slice(2).join(':');
+  if (
+    !Number.isSafeInteger(milis) ||
+    milis < 0 ||
+    !Number.isSafeInteger(contador) ||
+    contador < 0 ||
+    dispositivoRemoto === ''
+  ) {
+    throw new Error('HLC_REMOTO_INVALIDO');
+  }
+  const actual = await leerReloj(db, dispositivo);
+  const siguiente = recibir(
+    actual,
+    { milis, contador, dispositivo: dispositivoRemoto as DispositivoId },
+    relojPared,
+  );
   await db.meta.put({ clave: CLAVE_RELOJ, valor: siguiente });
   return siguiente;
 }
