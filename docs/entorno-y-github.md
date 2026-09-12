@@ -188,9 +188,10 @@ Finalmente levanta la aplicacion:
 npm run dev
 ```
 
-Abre http://localhost:5173 en el navegador. La primera carga tarda un par de
-segundos porque siembra la base local. Entra con `u-aux-1` y la clave
-`crearcos-2026`.
+Abre http://localhost:5173 en el navegador. Con Supabase configurado, inicia
+sesión con una cuenta central. Para una demostración aislada sin servidor,
+establece `VITE_ENABLE_LOCAL_DEMO=true` y una contraseña temporal de al menos
+ocho caracteres en `VITE_LOCAL_DEMO_PASSWORD`; no la confirmes en Git.
 
 Para detenerla, `Ctrl` + `C` en la terminal.
 

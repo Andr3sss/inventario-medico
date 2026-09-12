@@ -229,17 +229,173 @@ La barra superior muestra cuantos escaneos no han salido del dispositivo. De ese
 numero depende si el auxiliar puede apagar el equipo o no, y no puede quedar
 escondido detras de un menu.
 
+## 30. La maleta es una entidad con su propia maquina de estados, espejo de la de Pieza
+
+`maletas/maquina.ts` repite a proposito la forma de `estados/maquina.ts`:
+mismo patron de evento puro, mismo `Resultado<T,E>`, mismos nombres de campo.
+Antes de esto, "el estado de la maleta" no existia como dato: se hubiera
+tenido que inferir contando los estados de sus piezas, y esa inferencia es
+ambigua (¿una maleta con piezas en `EN_MALETA_ACTIVA` y otras ya
+`USADA_PENDIENTE_VALORACION` esta "en cirugia" o "regresando"?). Sin una
+maquina propia, cada pantalla que necesitara ese estado tendria que
+reinventar la misma logica de inferencia, y dos pantallas la reinventarian
+distinto.
+
+## 31. Los eventos de maleta se registran localmente pero todavia no sincronizan
+
+`eventosMaleta` es una tabla de solo agregado, igual en espiritu al log de
+eventos de Pieza, pero **no** pasa por el `outbox` ni por `sincronizar()`.
+Es una limitacion reconocida, no un olvido: extender el motor de
+sincronizacion (probado con 11 casos) para un segundo tipo de entidad es
+trabajo aparte, y hacerlo mal arriesgaba el motor que ya funciona. Mientras
+tanto, la maleta como agregado (responsable, hospital, momento de cierre) es
+local al dispositivo que la abrio; lo que si sincroniza ya hoy es el
+movimiento de cada pieza (`ESCANEO_ARMADO`, `CONFIRMAR_SALIDA`, etc.), que es
+el dato que de verdad importa para la trazabilidad del instrumental.
+
+## 32. Un codigo corto no es "los primeros N caracteres" ni "los ultimos N caracteres" de un UUID
+
+`codigoCortoDesde` (identificadores.ts) pliega con XOR los cuatro bloques de
+32 bits del UUIDv7 completo en vez de recortar una porcion. Se probaron las
+dos versiones ingenuas y las dos colisionaron escribiendo las pruebas de
+`maletas.ts`:
+
+- Los primeros 8 caracteres son el timestamp de grano grueso: casi no cambian
+  entre dos maletas creadas segundos aparte.
+- Los ultimos 8 (la cola aleatoria) tampoco alcanzan si la fuente de azar es
+  un generador simple como un LCG: sus bits bajos estan correlacionados entre
+  llamadas consecutivas, una debilidad conocida de los LCG, y con `AZAR_FIJO`
+  (el generador determinista de las pruebas) volvio a colisionar despues de
+  unas pocas decenas de creaciones.
+
+El pliegue usa el UUID entero -tiempo y azar- y no depende de que una parte
+especifica tenga buena entropia. `identificadores.test.ts` deja una prueba de
+regresion con 2000 creaciones seguidas para que esto no se rompa en silencio.
+
+## 33. El escaneo dentro de una maleta distingue "la operacion no tenia sentido" de "el resultado es un estado esperable"
+
+`escanearArmado`, `retirarDeArmado` y `escanearUso` (maletas.ts) devuelven
+`fallo(...)` solo cuando la maleta no existe o ya no admite la operacion.
+Cualquier cosa relacionada con la pieza en si -codigo inexistente, rebote del
+lector, rol sin permiso, transicion invalida- vuelve como `ok(RespuestaEscaneo)`
+con un campo `codigo`. La razon es de UX tanto como de arquitectura: un
+auxiliar escaneando decenas de piezas por minuto no esta en un flujo de "error
+de sistema" cuando el lector rebota o cuando prueba un codigo que no existe;
+esta en el flujo normal del trabajo. Tratar eso como una excepcion obligaria a
+Codex a envolver cada escaneo en manejo de errores en vez de un simple switch
+sobre `codigo`.
+
+## 34. El alta manual de catalogo/pieza no genera un evento de trazabilidad
+
+`crearProducto` y `registrarPieza` (inventario.ts) escriben directo con
+`db.catalogo.put`/`db.piezas.put`, sin pasar por `aplicarEvento` ni por
+`escribirEventoPieza`. No es una excepcion a la regla 1 ("ningun cambio de
+estado se escribe directo"): esa regla protege una _transicion_ de una pieza
+que ya existe, y aqui no hay una pieza previa cuyo estado explicar. Es la
+primera fila. El primer evento real de esa pieza (`ESCANEO_ARMADO`, etc.) si
+pasa por la maquina de estados como cualquier otra.
+
+El campo `hlc` de una pieza recien registrada usa el mismo marcador de
+"genesis" que ya usa la semilla (`000000000000000:00000:...`), para que
+cualquier evento futuro ordene despues sin ambiguedad y sin tener que inventar
+un HLC real para un momento que no corresponde a ningun evento.
+
+## 35. Hospitales vive junto a Usuarios en la navegacion del Administrador
+
+Punto que estaba abierto en el contrato (seccion 11): se agrego el area
+`hospitales` a la matriz de `permisos.ts`, visible solo para
+`ADMINISTRADOR`, junto a `usuarios` e `inventario`. Motivo: las tres son
+pantallas de autoservicio sobre datos maestros (personas, catalogo,
+instituciones), no pantallas operativas del dia a dia como maletas o
+cirugia -encajan mejor ahi que como un area nueva de primer nivel o escondida
+dentro de Inventario, que ya tiene su propia navegacion interna (piezas,
+trazabilidad, kits)-.
+
+La pantalla real todavia no existe: `Hospitales.tsx` hoy es un marcador de
+posicion (decision 26) para que el switch de `Area.tsx` compile mientras
+Codex construye la version definitiva contra `listarHospitales`/
+`guardarHospital`, que ya estan probados.
+
+## 36. Aprueba el Administrador, no un rol "Gerencia" nuevo
+
+Punto abierto del brief (§11.3): "quien aprueba, en que momento, dentro de la
+app o fuera de ella". Decidido con el usuario: aprueba el Administrador,
+dentro de la app (`excepciones.ts`). No se agrega un sexto rol al modelo de 5
+posiciones del brief solo para esto.
+
+Quien puede _proponer_ una excepcion (`proponerExcepcionPrecio`) es distinto
+de quien la _aprueba_: Contable o Administrador registran la negociacion,
+solo Administrador decide. Toda excepcion nace `PENDIENTE` sin importar quien
+la cree -incluso si la crea el propio Administrador-, para que la aprobacion
+quede como un paso separado y auditable en vez de implicito en el alta.
+
+## 37. El link freelance vive atado a la maleta, y lo genera Contable
+
+Punto abierto del brief (§11.4). Decidido con el usuario: el token expira
+cuando la maleta llega a un estado terminal (`CERRADA`/`CANCELADA`), no a una
+hora fija de reloj -asi se acerca a "solo activo durante la cirugia en la que
+participan" sin necesitar un proceso en segundo plano que revoque sesiones
+activas-. La sesion que se abre al redimirlo si tiene un techo de tiempo
+(reusa `VIGENCIA_FREELANCE_MS`, 6h) como salvaguarda si nadie cierra la
+maleta.
+
+Quien lo genera: el brief (§4) asigna explicitamente "valida instrumentistas
+freelance" al rol **Contable**, no a la Coordinadora. La primera version de
+esta decision (discutida con el usuario) nombraba a la Coordinadora por
+error -se corrigio antes de escribir el codigo, `generarTokenFreelance` exige
+`CONTABLE` o `ADMINISTRADOR`-.
+
+La identidad de quien entra por el link es efimera (`freelance-<token>`), no
+crea una fila en `usuarios`: nada en el resto del sistema resuelve
+autorizacion consultando esa tabla, siempre es por `sobre.rol` del evento, asi
+que no hace falta una cuenta previa para que los eventos que firma sean
+validos.
+
+## 38. El Supervisor ve tres senales agregadas, no pantallas propias
+
+Punto abierto del brief (§11.5). Decidido con el usuario: conflictos
+abiertos, maletas que llevan mas de 8 horas fuera de bodega (`salioEn`), y
+facturas en borrador con alguna linea bloqueada por aprobacion pendiente
+(`notificaciones.ts`). Las 8 horas son un default documentado, no un numero
+del brief -si Crearcos define un umbral distinto por jornada real, es un
+parametro de `obtenerNotificaciones`, no un cambio de codigo-.
+
+No existe una tabla de notificaciones ni un mecanismo de push: es una lectura
+agregada sobre datos que ya existian, coherente con que el rol Supervisor es
+"pantalla de solo notificacion / lectura general" (brief §4), sin escritura.
+
+## 39. Resolver nombres es una lectura abierta, distinta de administrar usuarios
+
+`listarUsuariosBasico` (usuarios.ts) es la unica funcion de ese modulo sin
+gating de rol, a proposito: `listarUsuarios` protege una _accion_
+administrativa (ver quien esta bloqueado, con cuantos intentos fallidos),
+mientras que id+nombre+rol no es informacion que valga la pena esconder de
+otro rol autenticado -ya vive sin cifrar en el mismo dispositivo, en la misma
+base local-. Existe para cerrar dos huecos reales: la Coordinadora escribiendo
+un `usuarioId` a mano para mandar una pieza a una bodega de instrumentista
+(sin poder ver la lista de instrumentistas activos), y varias pantallas
+mostrando el `usuarioId` crudo donde antes no habia forma de resolverlo a un
+nombre. Excluye inactivos por defecto: ofrecer una cuenta desactivada como
+destino no tiene sentido.
+
+`contarPiezasPorEstado` (inventario.ts) existe porque Inventario.tsx y
+Tablero.tsx pedian el total de cada estado abriendo 5 llamadas paginadas
+independientes (`listarPiezas(db, {estado}, {porPagina:1})` x5) solo para leer
+`.total` de cada una. Una sola pasada sobre `db.piezas.toArray()` resuelve los
+10 conteos a la vez. Los conteos son siempre globales, sin filtro: los
+resumenes que los usan muestran la distribucion completa del inventario, no
+una vista filtrada.
+
 ## Pendiente de decidir
 
-- Si la autenticacion contra el servidor sera Supabase Auth o propia. Mientras
-  tanto el prototipo usa credenciales locales sembradas, que se eliminan cuando
-  eso se defina.
-
-- Tamano optimo del lote de sincronizacion, a medir con el volumen real de una
-  jornada de Crearcos.
+- Tamaño óptimo del lote de sincronización (el límite defensivo actual es 200),
+  a medir con el volumen real de una jornada de Crearcos.
 - Politica de purga del log de eventos ya sincronizados en dispositivos con poco
   espacio.
-- Formato exacto del token del instrumentista freelance, atado al resultado de
-  la PoC 4.
 - Si el marcado fisico sobrevive al autoclave, atado al resultado de la PoC 3.
   Si no sobrevive, el modelo de codigo unico por pieza hay que replantearlo.
+- Validar tecnicamente la lectura del QR de fabrica en insumos (PoC 4, punto
+  abierto 1 del brief) — condiciona si el modelo de "codigo en el empaque"
+  aguanta produccion.
+- Si el umbral de 8 horas de la decision 38 (maleta demorada) es el correcto
+  para una jornada real de Crearcos, o si debe configurarse por hospital.
