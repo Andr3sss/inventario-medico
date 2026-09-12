@@ -435,6 +435,27 @@ respuesta autoritativa, desde donde soporte puede exportar la evidencia y tomar
 una decisión explícita. Esta política técnica necesita firma de negocio y
 seguridad antes de producción.
 
+## 42. El escenario multidispositivo usa Supabase local desechable en CI
+
+Una prueba con un transporte simulado no demuestra que Edge Functions,
+PostgreSQL, los commits ni las restricciones reales converjan. La prueba de
+fase 5 crea dos réplicas IndexedDB auxiliares y réplicas separadas para
+Coordinadora y Contable contra el stack local reconstruido desde migraciones.
+Ejecuta los órdenes A→B y B→A y pierde deliberadamente la primera respuesta
+después de que el servidor confirma, para demostrar que reiniciar y repetir el
+mismo UUID es idempotente.
+
+El proceso queda bloqueado por dos defensas: requiere
+`CREARCOS_E2E_SUPABASE_LOCAL=true` y la URL debe ser HTTP local en el puerto 54321. De esta forma el servicio privilegiado usado para preparar y comprobar
+el escenario no puede apuntar por error a staging o producción. La suite
+normal omite estos casos; el job dedicado de CI levanta y destruye su propia
+instancia.
+
+Los cursores de servidor se conservan como texto para no perder precisión,
+pero el inbox los ordena con `BigInt`. Ordenarlos lexicográficamente habría
+proyectado el commit 10 antes que el 9 y podía dejar una instantánea antigua
+como resultado final.
+
 ## Pendiente de decidir
 
 - Tamaño óptimo del lote de sincronización (el límite defensivo actual es 200),

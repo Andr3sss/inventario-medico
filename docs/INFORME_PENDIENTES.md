@@ -41,7 +41,9 @@ No deben contarse nuevamente como trabajo faltante los siguientes componentes, a
 - Datos de demostración, purga de la demostración y documentación de entrega a producción.
 - Cuatro Edge Functions desplegadas y activas: `sync`, `prepare-production`, `administration` y `freelance-access`.
 - Migraciones locales y remotas coincidentes al momento de la revisión.
-- Verificación actual del frontend y paquetes: lint, comprobación de tipos, compilación y 219 pruebas TypeScript aprobadas.
+- Verificación actual del frontend y paquetes: lint, comprobación de tipos,
+  compilación y 220 pruebas TypeScript aprobadas. Los 2 escenarios E2E con
+  Supabase se ejecutan únicamente en el job de infraestructura local de CI.
 - Auditoría actual de dependencias npm sin vulnerabilidades conocidas.
 - Suite pgTAP existente con 41 aserciones aprobadas contra la base remota.
 
@@ -168,7 +170,17 @@ resolución administrativa.
 
 ### P0-04. Crear pruebas repetibles del escenario crítico multidispositivo
 
-**Carencia:** existen pruebas unitarias y comprobaciones SQL, pero no una prueba end-to-end automatizada que reproduzca el flujo central del requisito: dos dispositivos sin conexión asignan la misma pieza, reinician, se conectan en distinto orden, generan evidencia, resuelven el conflicto y convergen.
+> **Estado de implementación (12 de septiembre de 2026):** resuelto
+> técnicamente en la rama de trabajo. Una prueba E2E levanta cuatro réplicas
+> IndexedDB aisladas (dos auxiliares, Coordinadora y Contable) contra una base
+> Supabase reconstruida desde cero. Ejecuta ambos órdenes de reconexión,
+> pérdida de respuesta después del commit, reinicio de la réplica, reintento
+> idempotente, conflicto con dos candidatos, congelamiento, resolución,
+> cierre, factura, emisión y convergencia de estado e historiales. GitHub
+> Actions ejecuta primero pgTAP y después el escenario. La aceptación en
+> equipos físicos continúa perteneciendo a P0-06, no a este cierre técnico.
+
+**Carencia original:** existían pruebas unitarias y comprobaciones SQL, pero no una prueba end-to-end automatizada que reprodujera el flujo central del requisito: dos dispositivos sin conexión asignan la misma pieza, reinician, se conectan en distinto orden, generan evidencia, resuelven el conflicto y convergen.
 
 **Trabajo necesario:**
 
@@ -315,11 +327,12 @@ Se necesita firma de usuarios responsables sobre:
 
 ### P2-01. Automatización CI/CD incompleta
 
-La automatización actual comprueba dependencias, lint, tipos, pruebas TypeScript y build. Debe incorporar:
+La automatización actual comprueba dependencias, lint, tipos, pruebas
+TypeScript y build. Desde la fase 5 también reconstruye Supabase desde cero,
+ejecuta pgTAP y prueba el escenario E2E multidispositivo. Aún debe incorporar:
 
-- Reconstrucción de Supabase desde cero.
-- Pruebas pgTAP y Edge Functions.
-- Pruebas E2E/PWA y multidispositivo.
+- Pruebas unitarias y negativas específicas de Edge Functions.
+- Pruebas E2E de interfaz/PWA.
 - Comparación de migraciones y tipos generados.
 - Auditoría de dependencias.
 - Despliegue a staging, smoke y promoción controlada.

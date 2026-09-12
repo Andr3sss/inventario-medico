@@ -15,6 +15,7 @@
   "scripts": {
     "typecheck": "tsc --build --force",
     "test": "vitest run",
+    "test:e2e:sync": "node -e \"if(process.env.CREARCOS_E2E_SUPABASE_LOCAL!=='true')throw new Error('CREARCOS_E2E_SUPABASE_LOCAL=true es obligatorio')\" && vitest run packages/data/src/e2e/multidispositivo.supabase.test.ts",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",

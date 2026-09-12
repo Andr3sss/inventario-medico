@@ -529,7 +529,9 @@ async function proyectarInbox(
   let omitidas = 0;
   let errores = 0;
   let ultimoError: string | null = null;
-  for (const fila of await db.inboxSync.where('aplicado').equals(0).sortBy('id')) {
+  const pendientes = await db.inboxSync.where('aplicado').equals(0).toArray();
+  pendientes.sort(compararOrdenServidor);
+  for (const fila of pendientes) {
     try {
       const resultado = await db.transaction(
         'rw',
@@ -564,6 +566,20 @@ async function proyectarInbox(
     }
   }
   return { actualizadas, omitidas, errores, ultimoError };
+}
+
+/**
+ * Los cursores de PostgreSQL son bigint serializados como texto. Ordenar por
+ * `id` colocaria, por ejemplo, el commit 10 antes del 9 y podria dejar una
+ * proyeccion antigua como estado final. BigInt conserva el orden exacto sin
+ * perder precision para cursores mayores que Number.MAX_SAFE_INTEGER.
+ */
+function compararOrdenServidor(a: FilaInboxSync, b: FilaInboxSync): number {
+  const secuenciaA = BigInt(a.secuenciaServidor);
+  const secuenciaB = BigInt(b.secuenciaServidor);
+  if (secuenciaA < secuenciaB) return -1;
+  if (secuenciaA > secuenciaB) return 1;
+  return a.ordinal - b.ordinal;
 }
 
 type ResultadoProyeccion = 'APLICADO' | 'PIEZA_ACTUALIZADA' | 'PIEZA_PENDIENTE';

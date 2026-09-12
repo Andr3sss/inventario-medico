@@ -92,6 +92,50 @@ function transporteDe(respuesta: RespuestaSync): Transporte {
 }
 
 describe('proyeccion del historial central', () => {
+  it('proyecta cursores bigint en orden numerico al cruzar de 9 a 10', async () => {
+    const productoId = '00000000-0000-4000-8000-000000000001';
+    const cambioProducto = (secuencia: string, nombre: string): CambioSync => ({
+      ordinal: 0,
+      entidadTipo: 'PRODUCTO',
+      entidadId: productoId,
+      version: Number(secuencia),
+      eliminado: false,
+      payload: {
+        id: productoId,
+        sku: 'ORDEN-CURSOR',
+        nombre,
+        tipo: 'INSTRUMENTAL',
+        costo_base_centavos: 100,
+      },
+    });
+    const respuesta: RespuestaSync = {
+      aceptados: [],
+      rechazados: [],
+      conflictos: [],
+      piezas: [],
+      cursorServidor: '10',
+      commits: [
+        {
+          secuenciaServidor: '10',
+          commitId: '00000000-0000-4000-8000-000000000010',
+          creadoEn: new Date(reloj.ahora()).toISOString(),
+          cambios: [cambioProducto('10', 'Version nueva')],
+        },
+        {
+          secuenciaServidor: '9',
+          commitId: '00000000-0000-4000-8000-000000000009',
+          creadoEn: new Date(reloj.ahora()).toISOString(),
+          cambios: [cambioProducto('9', 'Version anterior')],
+        },
+      ],
+    };
+
+    await sincronizar(destino, transporteDe(respuesta), opcionesDestino());
+
+    expect((await destino.catalogo.get('ORDEN-CURSOR'))?.nombre).toBe('Version nueva');
+    expect((await destino.replicaCentral.get(`PRODUCTO:${productoId}`))?.version).toBe(10);
+  });
+
   it('converge el historial de una pieza y no duplica un replay', async () => {
     const registrado = await registrarEvento(
       origen,

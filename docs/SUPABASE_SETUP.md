@@ -23,6 +23,27 @@ npm run build
 El seed automático está desactivado. Para cargar demo se usa el script de
 operador descrito en `DEMO_DATA.md`.
 
+### Escenario E2E multidispositivo
+
+La prueba destructiva solo acepta la URL local exacta de Supabase en el puerto
+`54321`; rechaza una URL remota aunque se configuren credenciales válidas. Con
+el stack local iniciado, exportar las claves que entrega la CLI y ejecutar:
+
+```bash
+eval "$(npx supabase status -o env)"
+export SUPABASE_URL="$API_URL"
+export SUPABASE_ANON_KEY="$ANON_KEY"
+export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
+export CREARCOS_E2E_SUPABASE_LOCAL=true
+npm run test:e2e:sync
+```
+
+El escenario crea identidades y maestros únicos dentro de esa instancia
+desechable. No presupone una base limpia entre casos, pero CI siempre la
+construye desde las migraciones del clon, ejecuta `supabase test db` y luego
+prueba los dos órdenes de reconexión. `npm test` conserva la prueba E2E como
+omitida para no tocar infraestructura por accidente.
+
 ## Proyecto remoto
 
 ```bash
@@ -99,9 +120,13 @@ Se probaron en transacciones con rollback:
 - validación, canje y pull restringido de una sesión freelance;
 - dry-run, purge, eliminación Auth, bootstrap y activación irreversible;
 - rechazo de seed después de producción.
+- dos IndexedDB offline asignando la misma pieza en ambos órdenes de
+  reconexión, con respuesta perdida, reinicio, replay idempotente, dos
+  candidatos, resolución por Coordinadora, factura emitida y convergencia de
+  historial.
 
-Todos los datos de esas pruebas se revirtieron. El estado remoto debe comprobarse
-antes de cada entrega:
+Las pruebas pgTAP revierten sus datos; la prueba E2E destruye el stack local
+completo al terminar. El estado remoto debe comprobarse antes de cada entrega:
 
 ```sql
 select ciclo_vida from public.configuracion_sistema where singleton;

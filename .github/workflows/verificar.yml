@@ -4,7 +4,7 @@ name: Verificar
 # Si algo se rompe, se entera GitHub antes que el cliente.
 on:
   push:
-    branches: [main]
+    branches: [main, rebanada-2-inventario]
   pull_request:
 
 jobs:
@@ -26,3 +26,39 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+
+  supabase-e2e:
+    needs: verificar
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Construye una instancia desechable desde las migraciones del repositorio.
+      # El runner de GitHub incluye Docker; no se conecta al proyecto remoto.
+      - run: npx supabase start
+
+      - name: Exponer credenciales de la instancia local
+        shell: bash
+        run: |
+          eval "$(npx supabase status -o env)"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "CREARCOS_E2E_SUPABASE_LOCAL=true"
+          } >> "$GITHUB_ENV"
+
+      - run: npx supabase test db
+      - run: npm run test:e2e:sync
+
+      - name: Detener Supabase local
+        if: always()
+        run: npx supabase stop --no-backup
