@@ -4,6 +4,7 @@ import {
   BLOQUEO_MS,
   INTENTOS_MAXIMOS,
   cerrarSesion,
+  idDispositivo,
   iniciarSesion,
   registrarUsuario,
   sesionActual,
@@ -149,5 +150,22 @@ describe('vigencia de la sesion', () => {
     const r = await sesionActual(db, opciones());
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.codigo).toBe('SIN_SESION');
+  });
+});
+
+describe('identidad central del dispositivo', () => {
+  it('genera un UUID crudo estable, compatible con PostgreSQL', async () => {
+    const primero = await idDispositivo(db);
+    const segundo = await idDispositivo(db);
+    expect(primero).toBe(segundo);
+    expect(primero).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(primero).not.toMatch(/^disp-/);
+  });
+
+  it('migra el prefijo legado sin cambiar el UUID', async () => {
+    const uuid = '018bcfe5-6800-7000-8000-000000000001';
+    await db.meta.put({ clave: 'dispositivo-id', valor: `disp-${uuid}` });
+    expect(await idDispositivo(db)).toBe(uuid);
+    expect((await db.meta.get('dispositivo-id'))?.valor).toBe(uuid);
   });
 });

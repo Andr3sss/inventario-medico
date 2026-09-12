@@ -210,6 +210,68 @@ describe('cambios que bajan del servidor', () => {
     expect((await db.piezas.get(CODIGO))?.estado).toBe('ASIGNADA_A_MALETA');
   });
 
+  it('conserva el cambio omitido en inbox y lo aplica despues del ACK', async () => {
+    const eventoId = await escanearArmado();
+    const remota = piezaDe({ estado: 'EN_REPROCESAMIENTO', version: 99 });
+
+    await sincronizar(
+      db,
+      transporteQue(async () =>
+        Promise.resolve({ ...respuestaVacia, piezas: [remota], cursorServidor: 'cur-99' }),
+      ),
+      opcionesSync(),
+    );
+
+    const retenida = await db.inboxSync.toArray();
+    expect(retenida).toHaveLength(1);
+    expect(retenida[0]?.aplicado).toBe(0);
+    expect((await db.meta.get('cursor-servidor'))?.valor).toBe('cur-99');
+
+    await sincronizar(
+      db,
+      transporteQue(async () =>
+        Promise.resolve({ ...respuestaVacia, aceptados: [eventoId], cursorServidor: 'cur-99' }),
+      ),
+      opcionesSync(),
+    );
+
+    expect((await db.inboxSync.toArray())[0]?.aplicado).toBe(1);
+    expect((await db.piezas.get(CODIGO))?.estado).toBe('EN_REPROCESAMIENTO');
+  });
+
+  it('persiste agregados no nativos en la replica generica', async () => {
+    const respuesta: RespuestaSync = {
+      ...respuestaVacia,
+      cursorServidor: '42',
+      commits: [
+        {
+          secuenciaServidor: '42',
+          commitId: '00000000-0000-4000-8000-000000000042',
+          creadoEn: new Date(reloj.ahora()).toISOString(),
+          cambios: [
+            {
+              ordinal: 0,
+              entidadTipo: 'MALETA_ITEM',
+              entidadId: '00000000-0000-4000-8000-000000000043',
+              version: 3,
+              eliminado: false,
+              payload: { resultado: 'UTILIZADA' },
+            },
+          ],
+        },
+      ],
+    };
+    await sincronizar(
+      db,
+      transporteQue(async () => Promise.resolve(respuesta)),
+      opcionesSync(),
+    );
+
+    const copia = await db.replicaCentral.get('MALETA_ITEM:00000000-0000-4000-8000-000000000043');
+    expect(copia?.version).toBe(3);
+    expect((await db.inboxSync.toArray())[0]?.aplicado).toBe(1);
+  });
+
   it('ignora una version mas vieja que la local', async () => {
     const remota = piezaDe({ estado: 'EN_REPROCESAMIENTO', version: 1 });
     const resumen = await sincronizar(
