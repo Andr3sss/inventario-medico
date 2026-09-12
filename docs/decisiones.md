@@ -225,9 +225,11 @@ que verse igual sin internet.
 
 ## 29. El estado de sincronizacion esta siempre visible
 
-La barra superior muestra cuantos escaneos no han salido del dispositivo. De ese
-numero depende si el auxiliar puede apagar el equipo o no, y no puede quedar
-escondido detras de un menu.
+La barra lateral resume la salud completa del dispositivo y abre un diagnostico
+para cualquier rol autenticado. No basta contar escaneos pendientes: tambien se
+consideran cuarentena, errores del inbox, ultimo intento, PUSH, PULL, cursor y
+conexion. De ese estado depende si el usuario puede cerrar el equipo y no puede
+quedar escondido detras de un menu.
 
 ## 30. La maleta es una entidad con su propia maquina de estados, espejo de la de Pieza
 
@@ -389,6 +391,22 @@ independientes (`listarPiezas(db, {estado}, {porPagina:1})` x5) solo para leer
 10 conteos a la vez. Los conteos son siempre globales, sin filtro: los
 resumenes que los usan muestran la distribucion completa del inventario, no
 una vista filtrada.
+
+## 40. Un rechazo terminal se revisa y exporta, pero no se reenvia a ciegas
+
+El servidor deduplica una operacion por UUID y conserva su resultado terminal.
+Reponer exactamente la misma operacion rechazada solo devolveria el mismo
+rechazo; inventar un UUID nuevo sin volver a validar la transicion podria
+duplicar una accion fisica o crear otro conflicto. Por eso el panel ofrece tres
+acciones seguras: sincronizar de nuevo lo que aun es recuperable, navegar a la
+entidad para corregir el dato mediante su flujo de dominio y exportar toda la
+evidencia para soporte. La fila de `fallidos` nunca se borra automaticamente.
+
+La interfaz muestra como maximo cien detalles recientes para no degradarse con
+una cuarentena grande, pero presenta los conteos totales. Dexie v7 indexa la
+fecha del rechazo y el momento de creacion de cada operacion; una cola se alerta
+con tres intentos o quince minutos, y un PULL se considera atrasado tras cinco
+minutos con conexion disponible.
 
 ## Pendiente de decidir
 

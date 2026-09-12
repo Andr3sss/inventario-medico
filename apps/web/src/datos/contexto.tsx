@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { fallo, type Resultado } from '@crearcos/core';
 import {
@@ -11,6 +19,7 @@ import {
   crearTransporteSupabase,
   entrarConTokenCentral,
   entrarConToken,
+  diagnosticarSincronizacion,
   iniciarSesion,
   iniciarSesionCentral,
   sesionActual,
@@ -21,6 +30,7 @@ import {
   type BaseLocal,
   type ErrorAuth,
   type ErrorFreelance,
+  type DiagnosticoSincronizacion,
   type SesionActiva,
 } from '@crearcos/data';
 import { prepararDispositivo } from './arranque.js';
@@ -32,6 +42,9 @@ interface ValorApp {
   readonly sesion: SesionActiva | null;
   /** Escaneos que todavia no salieron del dispositivo. */
   readonly pendientes: number;
+  readonly diagnosticoSync: DiagnosticoSincronizacion | null;
+  readonly enLinea: boolean;
+  readonly sincronizando: boolean;
   readonly centralConfigurado: boolean;
   readonly modoDemoLocal: boolean;
   readonly administracionCentral: AdministracionCentral | null;
@@ -47,6 +60,8 @@ interface ValorApp {
     token: string,
   ) => Promise<Resultado<{ readonly maletaId: string }, ErrorFreelance>>;
   readonly salir: () => Promise<void>;
+  readonly sincronizarAhora: () => Promise<void>;
+  readonly refrescarDiagnosticoSync: () => Promise<void>;
 }
 
 const Contexto = createContext<ValorApp | null>(null);
@@ -66,7 +81,10 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
   const [db, setDb] = useState<BaseLocal | null>(null);
   const [persistente, setPersistente] = useState(false);
   const [sesion, setSesion] = useState<SesionActiva | null>(null);
-  const [pendientes, setPendientes] = useState(0);
+  const [diagnosticoSync, setDiagnosticoSync] = useState<DiagnosticoSincronizacion | null>(null);
+  const [enLinea, setEnLinea] = useState(globalThis.navigator.onLine);
+  const [sincronizando, setSincronizando] = useState(false);
+  const sincronizacionEnCurso = useRef(false);
   const administracionCentral = useMemo(
     () =>
       db === null || clienteCentral === null
@@ -97,38 +115,79 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
     };
   }, []);
 
-  // La cuenta de pendientes se refresca sola: es el dato que le dice al auxiliar
-  // si puede cerrar la app sin perder trabajo.
+  const refrescarDiagnosticoSync = useCallback(async (): Promise<void> => {
+    if (db === null) return;
+    setDiagnosticoSync(await diagnosticarSincronizacion(db, ahora()));
+  }, [db]);
+
+  // El diagnostico combina pendientes, cuarentena, inbox y marcas durables.
   useEffect(() => {
     if (db === null) return undefined;
     const leer = (): void => {
-      void db.operacionesSync.count().then(setPendientes);
+      void refrescarDiagnosticoSync();
     };
     leer();
     const temporizador = globalThis.setInterval(leer, 3_000);
     return () => {
       globalThis.clearInterval(temporizador);
     };
-  }, [db]);
+  }, [db, refrescarDiagnosticoSync]);
 
-  // Reintento oportunista: IndexedDB sigue siendo operativa si no hay red.
   useEffect(() => {
-    if (db === null || sesion === null || clienteCentral === null) return undefined;
+    const conectado = (): void => {
+      setEnLinea(true);
+    };
+    const desconectado = (): void => {
+      setEnLinea(false);
+    };
+    globalThis.addEventListener('online', conectado);
+    globalThis.addEventListener('offline', desconectado);
+    return () => {
+      globalThis.removeEventListener('online', conectado);
+      globalThis.removeEventListener('offline', desconectado);
+    };
+  }, []);
+
+  const sincronizarAhora = useCallback(async (): Promise<void> => {
+    if (db === null || sesion === null || clienteCentral === null) {
+      await refrescarDiagnosticoSync();
+      return;
+    }
     const transporte =
       sesion.sesionFreelanceId === undefined
         ? transporteCentral
         : crearTransporteFreelance(clienteCentral, sesion.sesionFreelanceId);
-    if (transporte === null) return undefined;
-    let vigente = true;
-    const ejecutar = (): void => {
-      if (!vigente) return;
-      void sincronizar(db, transporte, {
+    if (transporte === null) return;
+    if (sincronizacionEnCurso.current) return;
+    sincronizacionEnCurso.current = true;
+    setSincronizando(true);
+    try {
+      await sincronizar(db, transporte, {
         dispositivoId: sesion.dispositivoId,
         ahora,
         nombreDispositivo: globalThis.navigator.userAgent.slice(0, 120),
         plataforma: 'web',
         versionApp: '0.1.0',
-      }).then(() => db.operacionesSync.count().then(setPendientes));
+      });
+    } catch {
+      // El motor persiste el diagnostico antes de propagar un error inesperado.
+    } finally {
+      try {
+        await refrescarDiagnosticoSync();
+      } finally {
+        sincronizacionEnCurso.current = false;
+        setSincronizando(false);
+      }
+    }
+  }, [db, sesion, refrescarDiagnosticoSync]);
+
+  // Reintento oportunista: IndexedDB sigue siendo operativa si no hay red.
+  useEffect(() => {
+    if (db === null || sesion === null || clienteCentral === null) return undefined;
+    let vigente = true;
+    const ejecutar = (): void => {
+      if (!vigente) return;
+      void sincronizarAhora();
     };
     ejecutar();
     const temporizador = globalThis.setInterval(ejecutar, 15_000);
@@ -138,7 +197,7 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
       globalThis.clearInterval(temporizador);
       globalThis.removeEventListener('online', ejecutar);
     };
-  }, [db, sesion]);
+  }, [db, sesion, sincronizarAhora]);
 
   const entrar = useCallback(
     async (usuario: string, contrasena: string) => {
@@ -198,7 +257,10 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
             ahora,
             persistente,
             sesion,
-            pendientes,
+            pendientes: diagnosticoSync?.pendientes ?? 0,
+            diagnosticoSync,
+            enLinea,
+            sincronizando,
             centralConfigurado,
             modoDemoLocal,
             administracionCentral,
@@ -206,17 +268,23 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
             entrarFreelance,
             validarFreelance,
             salir,
+            sincronizarAhora,
+            refrescarDiagnosticoSync,
           },
     [
       db,
       persistente,
       sesion,
-      pendientes,
+      diagnosticoSync,
+      enLinea,
+      sincronizando,
       administracionCentral,
       entrar,
       entrarFreelance,
       validarFreelance,
       salir,
+      sincronizarAhora,
+      refrescarDiagnosticoSync,
     ],
   );
 

@@ -110,6 +110,13 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 
 ### P0-02. Corregir el estado visible de sincronización y la gestión de rechazos
 
+> **Estado de implementación (11 de septiembre de 2026):** resuelto técnicamente
+> en la rama de trabajo. El estado visible combina conexión, PUSH/PULL, cursor,
+> pendientes, cuarentena, inbox y último error; los rechazos pueden revisarse y
+> exportarse sin borrarlos, y existen alertas locales de cola/PULL atrasados. La
+> aceptación final requiere probar el panel contra staging y simular fallos
+> reales de red y proyección en los dispositivos objetivo.
+
 **Carencia:** el indicador actual se basa principalmente en el conteo de operaciones pendientes. Puede mostrar “Todo sincronizado” aunque haya operaciones archivadas como fallidas, errores al aplicar cambios de entrada o ninguna descarga reciente exitosa. No existe una pantalla operativa para revisar y remediar la cuarentena de operaciones rechazadas.
 
 **Riesgo:** falsa sensación de seguridad y pérdida operativa no detectada por el usuario.

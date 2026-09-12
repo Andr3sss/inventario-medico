@@ -23,7 +23,13 @@ import {
 } from '@crearcos/core';
 import { esquemaLoteSync } from '@crearcos/core';
 import type { BaseLocal, EventoSincronizable, FilaInboxSync, FilaOperacionSync } from './db.js';
-import { CLAVE_CURSOR } from './db.js';
+import {
+  CLAVE_CURSOR,
+  CLAVE_ULTIMA_DESCARGA_EXITOSA,
+  CLAVE_ULTIMO_ENVIO_EXITOSO,
+  CLAVE_ULTIMO_ERROR_SYNC,
+  CLAVE_ULTIMO_INTENTO_SYNC,
+} from './db.js';
 import { avanzarReloj, fusionarRelojRemoto } from './reloj.js';
 import { AZAR_CRIPTOGRAFICO, uuidV7, type FuenteAzar } from './identificadores.js';
 import { encolarOperacion, esEventoPieza } from './operaciones.js';
@@ -108,6 +114,7 @@ export interface ResumenSync {
   readonly conflictos: number;
   readonly piezasActualizadas: number;
   readonly piezasOmitidas: number;
+  readonly erroresProyeccion: number;
   readonly mensaje: string | null;
   readonly hayMas: boolean;
 }
@@ -141,6 +148,7 @@ const vacio = (estado: EstadoSync, mensaje: string | null): ResumenSync => ({
   conflictos: 0,
   piezasActualizadas: 0,
   piezasOmitidas: 0,
+  erroresProyeccion: 0,
   mensaje,
   hayMas: false,
 });
@@ -160,6 +168,7 @@ export async function sincronizar(
   try {
     const azar = opciones.azar ?? AZAR_CRIPTOGRAFICO;
     const ahora = opciones.ahora();
+    await db.meta.put({ clave: CLAVE_ULTIMO_INTENTO_SYNC, valor: ahora });
     await migrarPendientesLegados(db, ahora);
     const pendientes = (await db.operacionesSync.orderBy('seq').toArray())
       .filter((fila) => fila.proximoIntento <= ahora)
@@ -180,7 +189,9 @@ export async function sincronizar(
 
     const validado = esquemaLoteSync.safeParse(lote);
     if (!validado.success) {
-      return vacio('LOTE_INVALIDO', validado.error.issues[0]?.message ?? 'Lote invalido');
+      const mensaje = validado.error.issues[0]?.message ?? 'Lote invalido';
+      await registrarErrorSync(db, mensaje, opciones.ahora());
+      return vacio('LOTE_INVALIDO', mensaje);
     }
 
     let respuesta: RespuestaSync;
@@ -189,6 +200,7 @@ export async function sincronizar(
     } catch (causa) {
       const mensaje = causa instanceof Error ? causa.message : 'Fallo de red';
       await reprogramar(db, pendientes, opciones.ahora(), mensaje, azar);
+      await registrarErrorSync(db, mensaje, opciones.ahora());
       return { ...vacio('SIN_CONEXION', mensaje), enviados: pendientes.length };
     }
 
@@ -197,7 +209,15 @@ export async function sincronizar(
     const rechazados = await archivarRechazados(db, respuesta.rechazados, opciones.ahora());
     const conflictos = await marcarConflictos(db, respuesta.conflictos, opciones, azar);
     await finalizarOperaciones(db, respuesta);
-    const { actualizadas, omitidas } = await proyectarInbox(db, opciones);
+    const { actualizadas, omitidas, errores, ultimoError } = await proyectarInbox(db, opciones);
+    const mensajeFinal =
+      ultimoError ??
+      (rechazados > 0 ? `${rechazados.toString()} evento(s) rechazado(s) por el servidor` : null);
+    await registrarResultadoSync(db, {
+      ahora: opciones.ahora(),
+      huboEnvio: pendientes.length > 0,
+      error: mensajeFinal,
+    });
 
     return {
       estado: 'COMPLETADO',
@@ -207,12 +227,46 @@ export async function sincronizar(
       conflictos,
       piezasActualizadas: actualizadas,
       piezasOmitidas: omitidas,
-      mensaje: null,
+      erroresProyeccion: errores,
+      mensaje: mensajeFinal,
       hayMas: respuesta.hayMas ?? false,
     };
+  } catch (causa) {
+    const mensaje = causa instanceof Error ? causa.message : 'ERROR_SYNC_INESPERADO';
+    try {
+      await registrarErrorSync(db, mensaje, opciones.ahora());
+    } catch {
+      // El error original es mas util que un fallo secundario al guardar telemetria local.
+    }
+    throw causa;
   } finally {
     enCurso.delete(db);
   }
+}
+
+async function registrarErrorSync(
+  db: BaseLocal,
+  mensaje: string,
+  ocurridoEn: number,
+): Promise<void> {
+  await db.meta.put({
+    clave: CLAVE_ULTIMO_ERROR_SYNC,
+    valor: { mensaje, ocurridoEn },
+  });
+}
+
+async function registrarResultadoSync(
+  db: BaseLocal,
+  resultado: { readonly ahora: number; readonly huboEnvio: boolean; readonly error: string | null },
+): Promise<void> {
+  await db.transaction('rw', db.meta, async () => {
+    await db.meta.put({ clave: CLAVE_ULTIMA_DESCARGA_EXITOSA, valor: resultado.ahora });
+    if (resultado.huboEnvio) {
+      await db.meta.put({ clave: CLAVE_ULTIMO_ENVIO_EXITOSO, valor: resultado.ahora });
+    }
+    if (resultado.error === null) await db.meta.delete(CLAVE_ULTIMO_ERROR_SYNC);
+    else await registrarErrorSync(db, resultado.error, resultado.ahora);
+  });
 }
 
 function aOperacionPush(fila: FilaOperacionSync): OperacionPush {
@@ -320,9 +374,12 @@ async function archivarRechazados(
           const maleta = pieza === undefined ? await db.eventosMaleta.get(id) : undefined;
           const evento = pieza?.evento ?? maleta?.evento;
           if (evento !== undefined) {
+            const operacionId = rechazo.operacionId ?? pieza?.operacionId ?? maleta?.operacionId;
             await db.fallidos.put({
               eventoId: id,
-              codigo: pieza?.codigo ?? maleta?.maletaId ?? rechazo.codigo ?? 'SIN_AGREGADO',
+              ...(operacionId === undefined ? {} : { operacionId }),
+              codigo: pieza?.codigo ?? maleta?.maletaId ?? 'SIN_AGREGADO',
+              ...(rechazo.codigo === undefined ? {} : { codigoError: rechazo.codigo }),
               motivo: rechazo.motivo,
               evento,
               registradoEn: ahora,
@@ -461,9 +518,16 @@ async function persistirRespuestaAntesDelCursor(
 async function proyectarInbox(
   db: BaseLocal,
   opciones: OpcionesSync,
-): Promise<{ actualizadas: number; omitidas: number }> {
+): Promise<{
+  actualizadas: number;
+  omitidas: number;
+  errores: number;
+  ultimoError: string | null;
+}> {
   let actualizadas = 0;
   let omitidas = 0;
+  let errores = 0;
+  let ultimoError: string | null = null;
   for (const fila of await db.inboxSync.where('aplicado').equals(0).sortBy('id')) {
     try {
       const resultado = await db.transaction(
@@ -492,9 +556,11 @@ async function proyectarInbox(
     } catch (causa) {
       const mensaje = causa instanceof Error ? causa.message : 'CAMBIO_REMOTO_INVALIDO';
       await db.inboxSync.update(fila.id, { error: mensaje });
+      errores += 1;
+      ultimoError = mensaje;
     }
   }
-  return { actualizadas, omitidas };
+  return { actualizadas, omitidas, errores, ultimoError };
 }
 
 type ResultadoProyeccion = 'APLICADO' | 'PIEZA_ACTUALIZADA' | 'PIEZA_PENDIENTE';

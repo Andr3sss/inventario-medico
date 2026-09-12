@@ -2,7 +2,7 @@
 
 ## Modelo local
 
-Dexie v6 conserva:
+Dexie v7 conserva:
 
 - `eventos` y `eventosMaleta`: logs locales y remotos con `operacionId`, HLC y
   ACK.
@@ -43,6 +43,19 @@ Un evento/operación solo abandona la cola con respuesta terminal explícita:
 `APLICADA`, `CONFLICTO` o `RECHAZADA`. Un error de red incrementa intentos y
 programa backoff exponencial con jitter (2 s a 5 min). Los rechazos definitivos
 se preservan en `fallidos`; nunca se descartan silenciosamente.
+
+Cada intento deja marcas durables en `meta`: último intento, último PUSH con
+respuesta, último PULL descargado y último error. El diagnóstico combina esas
+marcas con `operacionesSync`, `fallidos`, el cursor y las entradas del inbox que
+siguen sin aplicar. Por ello la ausencia de pendientes no equivale por sí sola
+a una sincronización correcta.
+
+Un rechazo terminal no vuelve automáticamente a la cola: el servidor conserva
+la operación por UUID y repetirla devuelve el mismo resultado idempotente. La
+interfaz permite revisar la entidad afectada, ejecutar un nuevo ciclo para el
+trabajo recuperable y exportar la evidencia completa sin borrar la cuarentena.
+Una operación con tres intentos o quince minutos en cola se marca como estancada;
+un PULL con más de cinco minutos se presenta como atrasado mientras haya red.
 
 ## PULL y cursor
 

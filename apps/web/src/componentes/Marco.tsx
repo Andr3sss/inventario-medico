@@ -119,6 +119,9 @@ export function Marco({ children }: { children: ReactNode }): ReactElement {
             <strong>{areaActual === null ? 'Panel' : AREAS[areaActual].titulo}</strong>
           </div>
           <div className="topbar__acciones">
+            <span className="topbar__sync-movil">
+              <EstadoSincronizacion compacto />
+            </span>
             <button type="button" className="busqueda-global" aria-label="Abrir búsqueda">
               <Icono nombre="buscar" />
               <span>Buscar en el sistema</span>

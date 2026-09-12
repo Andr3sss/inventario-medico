@@ -39,6 +39,7 @@ export async function encolarOperacion(
     clase: especial?.clase ?? 'EVENTOS',
     facturaId: especial?.facturaId ?? null,
     numeroFactura: especial?.numeroFactura ?? null,
+    creadoEn: ahora,
     intentos: 0,
     proximoIntento: ahora,
     ultimoError: null,

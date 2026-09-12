@@ -10,10 +10,17 @@ import {
   type Evento,
   type EventoMaleta,
 } from '@crearcos/core';
-import { BaseLocal, type FilaEvento, type FilaEventoMaleta, type FilaInboxSync } from './db.js';
+import {
+  BaseLocal,
+  type FilaEvento,
+  type FilaEventoMaleta,
+  type FilaInboxSync,
+  type FilaOperacionSync,
+} from './db.js';
 
 let secuenciaBase = 0;
 type FilaEventoMaletaV5 = Omit<FilaEventoMaleta, 'hlc'>;
+type FilaOperacionSyncV5 = Omit<FilaOperacionSync, 'creadoEn'>;
 
 class BaseVersion5 extends Dexie {
   constructor(nombre: string) {
@@ -22,13 +29,14 @@ class BaseVersion5 extends Dexie {
       eventos: 'eventoId, operacionId, codigo, hlc, enviado, [codigo+hlc]',
       eventosMaleta: 'eventoId, operacionId, maletaId, enviado',
       inboxSync: 'id, aplicado, entidadTipo, [secuenciaServidor+ordinal]',
+      operacionesSync: '++seq, &operacionId, proximoIntento',
       meta: 'clave',
     });
   }
 }
 
-describe('migracion local v6', () => {
-  it('reabre el historial previo y reinicia una sola vez el PULL completo', async () => {
+describe('migraciones locales v6 y v7', () => {
+  it('reabre el historial, reinicia el PULL e indexa la edad de la cola', async () => {
     secuenciaBase += 1;
     const nombre = `migracion-v6-${secuenciaBase.toString()}`;
     const idMaleta = maletaId('00000000-0000-4000-8000-000000000101');
@@ -85,6 +93,18 @@ describe('migracion local v6', () => {
       enviado: 1,
     });
     await antigua.table<FilaInboxSync, string>('inboxSync').put(inbox);
+    await antigua.table<FilaOperacionSyncV5, number>('operacionesSync').put({
+      operacionId: idEventoMaleta,
+      secuenciaCliente: '170000000000000000',
+      eventoIds: [idEventoMaleta],
+      eventos: [eventoMaleta],
+      clase: 'EVENTOS',
+      facturaId: null,
+      numeroFactura: null,
+      intentos: 0,
+      proximoIntento: 1_700_000_000_000,
+      ultimoError: null,
+    });
     await antigua.table('meta').put({ clave: 'cursor-servidor', valor: '9' });
     antigua.close();
 
@@ -95,6 +115,7 @@ describe('migracion local v6', () => {
       expect(await actual.eventos.get(idEventoSintetico)).toBeUndefined();
       expect(await actual.inboxSync.get(inbox.id)).toMatchObject({ aplicado: 0, error: null });
       expect(await actual.meta.get('cursor-servidor')).toBeUndefined();
+      expect((await actual.operacionesSync.toArray())[0]?.creadoEn).toBe(1_700_000_000_000);
     } finally {
       await actual.delete();
     }

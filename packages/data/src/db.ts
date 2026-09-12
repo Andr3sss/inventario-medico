@@ -52,7 +52,9 @@ export interface FilaOutbox {
  */
 export interface FilaFallido {
   readonly eventoId: string;
+  readonly operacionId?: string;
   readonly codigo: string;
+  readonly codigoError?: string;
   readonly motivo: string;
   readonly evento: EventoSincronizable;
   readonly registradoEn: number;
@@ -125,6 +127,8 @@ export interface FilaOperacionSync {
   readonly clase: 'EVENTOS' | 'EMITIR_FACTURA';
   readonly facturaId: string | null;
   readonly numeroFactura: string | null;
+  /** Momento local en que nacio la operacion; permite detectar colas estancadas. */
+  readonly creadoEn: number;
   intentos: number;
   proximoIntento: number;
   ultimoError: string | null;
@@ -320,12 +324,36 @@ export class BaseLocal extends Dexie {
         // claves idempotentes, por lo que el replay no crea duplicados.
         await transaccion.table<FilaMeta, string>('meta').delete('cursor-servidor');
       });
+
+    // Version 7: indices operativos para diagnosticar cuarentena y antiguedad
+    // de la cola sin recorrer tablas completas en cada refresco de la interfaz.
+    this.version(7)
+      .stores({
+        fallidos: 'eventoId, codigo, registradoEn',
+        operacionesSync: '++seq, &operacionId, proximoIntento, creadoEn',
+      })
+      .upgrade(async (transaccion) => {
+        await transaccion
+          .table<FilaOperacionSync, number>('operacionesSync')
+          .toCollection()
+          .modify((fila) => {
+            if (typeof fila.creadoEn !== 'number') {
+              // Las filas antiguas no conservaban su fecha de creacion. El
+              // proximo intento es el limite temporal determinista disponible.
+              Object.assign(fila, { creadoEn: fila.proximoIntento });
+            }
+          });
+      });
   }
 }
 
 export const CLAVE_RELOJ = 'reloj-hlc';
 export const CLAVE_CURSOR = 'cursor-servidor';
 export const CLAVE_SESION = 'sesion-activa';
+export const CLAVE_ULTIMO_INTENTO_SYNC = 'sync-ultimo-intento';
+export const CLAVE_ULTIMO_ENVIO_EXITOSO = 'sync-ultimo-envio-exitoso';
+export const CLAVE_ULTIMA_DESCARGA_EXITOSA = 'sync-ultima-descarga-exitosa';
+export const CLAVE_ULTIMO_ERROR_SYNC = 'sync-ultimo-error';
 
 /**
  * Pide al navegador que no desaloje el almacenamiento.

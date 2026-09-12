@@ -583,11 +583,23 @@ completo: `iniciarSesion(db, usuario, contrasena, opciones)`,
 ROL_NO_INICIA_SESION | SESION_EXPIRADA | SIN_SESION`. `esperaMs` viene con
 `USUARIO_BLOQUEADO` (milisegundos restantes de bloqueo).
 
-## 13. Estado de sincronizacion — ya integrado, sin cambios
+## 13. Estado y diagnóstico de sincronización
 
-`useApp().pendientes` (número de operaciones sin ACK central) está disponible
-y se refresca solo. `ProveedorApp` selecciona el transporte Supabase normal o
-el transporte restringido de la sesión freelance; sin red conserva la outbox.
+`useApp()` expone `diagnosticoSync`, `enLinea`, `sincronizando`,
+`sincronizarAhora()` y `refrescarDiagnosticoSync()`. `pendientes` se conserva
+como resumen compatible, pero ya no decide por sí solo el texto visible.
+
+`diagnosticarSincronizacion(db, ahora)` devuelve conteos totales y hasta cien
+detalles recientes de cuarentena/inbox, cursor, último intento, último PUSH y
+PULL correctos, último error, cola estancada y descarga atrasada. “Todo
+sincronizado” exige servidor configurado, conexión, al menos un PULL correcto y
+cero pendientes, fallidas, entradas sin aplicar o errores.
+
+El indicador abre un drawer disponible para cualquier sesión autenticada. Allí
+se puede ejecutar otro ciclo, navegar a una entidad que el rol pueda corregir y
+exportar un JSON de diagnóstico. Los rechazos terminales permanecen inmutables:
+el botón de reintento procesa únicamente operaciones todavía pendientes y
+entradas recuperables del inbox.
 
 ## 16. Excepciones de precio (`excepciones.ts`) — aprobacion de precio aleatorio
 

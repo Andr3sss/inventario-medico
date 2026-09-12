@@ -5,6 +5,7 @@ export * from './operaciones.js';
 export * from './autenticacion.js';
 export * from './escaneo.js';
 export * from './sync.js';
+export * from './estado-sync.js';
 export * from './maletas.js';
 export * from './hospitales.js';
 export * from './facturacion.js';
