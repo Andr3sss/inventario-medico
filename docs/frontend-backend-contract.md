@@ -574,14 +574,33 @@ interface Hospital {
 `ADMINISTRADOR`, junto a `usuarios`. `Hospitales.tsx` presenta la lista real y
 el formulario de alta/edicion sin agregar campos fuera del contrato.
 
-## 12. Autenticacion y sesion (`autenticacion.ts`) — ya integrado, sin cambios
+## 12. Autenticación, sesión y desbloqueo offline
 
-Sin cambios de contrato en esta ronda. Documentado aqui solo para que quede
-completo: `iniciarSesion(db, usuario, contrasena, opciones)`,
-`sesionActual(db, opciones)`, `cerrarSesion(db)`. Errores:
-`CREDENCIALES_INVALIDAS | USUARIO_INACTIVO | USUARIO_BLOQUEADO |
-ROL_NO_INICIA_SESION | SESION_EXPIRADA | SIN_SESION`. `esperaMs` viene con
-`USUARIO_BLOQUEADO` (milisegundos restantes de bloqueo).
+`SesionActiva.origen` distingue `LOCAL | CENTRAL | OFFLINE |
+FREELANCE_LOCAL | FREELANCE_CENTRAL`; una sesión central conserva además el
+correo normalizado en `identificador`. La UI no debe inferir autorización desde
+el origen: siempre consume `sesionActual(db, opciones)`.
+
+El contrato central mantiene `iniciarSesionCentral(...)`,
+`revalidarSesionCentral(cliente, sesion)` y `cerrarSesionCentral(...)`.
+`revalidarSesionCentral` devuelve `VALIDA`, `INVALIDA` o `NO_DISPONIBLE`. Solo
+`INVALIDA/PERFIL_INACTIVO` revoca el acceso local; una caída de red nunca se
+convierte en revocación.
+
+`acceso-offline.ts` expone:
+
+- `configurarAccesoOffline(db, sesionCentral, pin, opciones)`;
+- `listarAccesosOffline(db, ahora)`;
+- `iniciarSesionOffline(db, identificador, pin, opciones)`;
+- `renovarAccesoOffline(db, sesionCentral, ahora)`;
+- `revocarAccesoOffline(db, usuarioId, ahora, motivo)`;
+- `listarAuditoriaAcceso(db, usuarioId?)`.
+
+El PIN solo se configura después de autenticación central, pertenece al usuario
+y dispositivo actuales y no se transmite a Supabase. Los errores adicionales
+son `SERVICIO_NO_DISPONIBLE`, `ACCESO_OFFLINE_NO_CONFIGURADO`, `PIN_INVALIDO`,
+`PIN_DEBIL`, `CREDENCIAL_OFFLINE_EXPIRADA` y
+`CREDENCIAL_OFFLINE_REVOCADA`; `esperaMs` se informa durante un bloqueo.
 
 ## 13. Estado y diagnóstico de sincronización
 
@@ -714,18 +733,18 @@ las tres señales, con actualización manual.
 
 ## 19. Errores — catalogo completo por modulo
 
-| Modulo                                              | Codigos                                                                                                                                                                     |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Inventario (`inventario.ts`, alta)                  | `NO_AUTORIZADO`, `PRODUCTO_YA_EXISTE`, `PRODUCTO_NO_ENCONTRADO`, `PIEZA_YA_EXISTE`, `PADRE_NO_ENCONTRADO`, `COSTO_INVALIDO`                                                 |
-| Escaneo suelto (`escaneo.ts`, `reprocesamiento.ts`) | `PIEZA_DESCONOCIDA`, `REBOTE_DE_LECTOR`, `TRANSICION_RECHAZADA`                                                                                                             |
-| Maletas (`maletas.ts`)                              | `MALETA_NO_ENCONTRADA`, `ESTADO_INVALIDO`, `MALETA_VACIA`, `PIEZA_DESCONOCIDA`, `REBOTE_DE_LECTOR`, `TRANSICION_RECHAZADA`, `ROL_NO_AUTORIZADO`, `PRECIO_NO_RESUELTO`       |
-| Facturacion (`facturacion.ts`)                      | `MALETA_NO_ENCONTRADA`, `ESTADO_INVALIDO`, `HOSPITAL_NO_ENCONTRADO`, `COSTO_NO_DEFINIDO`, `FACTURA_NO_ENCONTRADA`, `LINEA_BLOQUEADA_POR_APROBACION`, `TRANSICION_RECHAZADA` |
-| Conflictos (`conflictos.ts`)                        | `CONFLICTO_NO_ENCONTRADO`, `CONFLICTO_YA_RESUELTO`, `PIEZA_NO_ENCONTRADA`, `TRANSICION_RECHAZADA`                                                                           |
-| Usuarios (`usuarios.ts`)                            | `NO_AUTORIZADO`, `USUARIO_NO_ENCONTRADO`, `USUARIO_YA_EXISTE`                                                                                                               |
-| Hospitales (`hospitales.ts`)                        | `NO_AUTORIZADO`, `HOSPITAL_NO_ENCONTRADO`                                                                                                                                   |
-| Autenticacion (`autenticacion.ts`)                  | `CREDENCIALES_INVALIDAS`, `USUARIO_INACTIVO`, `USUARIO_BLOQUEADO`, `ROL_NO_INICIA_SESION`, `SESION_EXPIRADA`, `SIN_SESION`                                                  |
-| Excepciones de precio (`excepciones.ts`)            | `NO_AUTORIZADO`, `EXCEPCION_NO_ENCONTRADA`, `ESTADO_INVALIDO`, `VALOR_INVALIDO`                                                                                             |
-| Freelance (`freelance.ts`)                          | `NO_AUTORIZADO`, `MALETA_NO_ENCONTRADA`, `MALETA_EN_ESTADO_TERMINAL`, `TOKEN_INVALIDO`, `TOKEN_REVOCADO`, `NOMBRE_REQUERIDO`                                                |
+| Modulo                                                  | Codigos                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Inventario (`inventario.ts`, alta)                      | `NO_AUTORIZADO`, `PRODUCTO_YA_EXISTE`, `PRODUCTO_NO_ENCONTRADO`, `PIEZA_YA_EXISTE`, `PADRE_NO_ENCONTRADO`, `COSTO_INVALIDO`                                                                                                                                                      |
+| Escaneo suelto (`escaneo.ts`, `reprocesamiento.ts`)     | `PIEZA_DESCONOCIDA`, `REBOTE_DE_LECTOR`, `TRANSICION_RECHAZADA`                                                                                                                                                                                                                  |
+| Maletas (`maletas.ts`)                                  | `MALETA_NO_ENCONTRADA`, `ESTADO_INVALIDO`, `MALETA_VACIA`, `PIEZA_DESCONOCIDA`, `REBOTE_DE_LECTOR`, `TRANSICION_RECHAZADA`, `ROL_NO_AUTORIZADO`, `PRECIO_NO_RESUELTO`                                                                                                            |
+| Facturacion (`facturacion.ts`)                          | `MALETA_NO_ENCONTRADA`, `ESTADO_INVALIDO`, `HOSPITAL_NO_ENCONTRADO`, `COSTO_NO_DEFINIDO`, `FACTURA_NO_ENCONTRADA`, `LINEA_BLOQUEADA_POR_APROBACION`, `TRANSICION_RECHAZADA`                                                                                                      |
+| Conflictos (`conflictos.ts`)                            | `CONFLICTO_NO_ENCONTRADO`, `CONFLICTO_YA_RESUELTO`, `PIEZA_NO_ENCONTRADA`, `TRANSICION_RECHAZADA`                                                                                                                                                                                |
+| Usuarios (`usuarios.ts`)                                | `NO_AUTORIZADO`, `USUARIO_NO_ENCONTRADO`, `USUARIO_YA_EXISTE`                                                                                                                                                                                                                    |
+| Hospitales (`hospitales.ts`)                            | `NO_AUTORIZADO`, `HOSPITAL_NO_ENCONTRADO`                                                                                                                                                                                                                                        |
+| Autenticación (`autenticacion.ts`, `acceso-offline.ts`) | `CREDENCIALES_INVALIDAS`, `USUARIO_INACTIVO`, `USUARIO_BLOQUEADO`, `ROL_NO_INICIA_SESION`, `SERVICIO_NO_DISPONIBLE`, `ACCESO_OFFLINE_NO_CONFIGURADO`, `PIN_INVALIDO`, `PIN_DEBIL`, `CREDENCIAL_OFFLINE_EXPIRADA`, `CREDENCIAL_OFFLINE_REVOCADA`, `SESION_EXPIRADA`, `SIN_SESION` |
+| Excepciones de precio (`excepciones.ts`)                | `NO_AUTORIZADO`, `EXCEPCION_NO_ENCONTRADA`, `ESTADO_INVALIDO`, `VALOR_INVALIDO`                                                                                                                                                                                                  |
+| Freelance (`freelance.ts`)                              | `NO_AUTORIZADO`, `MALETA_NO_ENCONTRADA`, `MALETA_EN_ESTADO_TERMINAL`, `TOKEN_INVALIDO`, `TOKEN_REVOCADO`, `NOMBRE_REQUERIDO`                                                                                                                                                     |
 
 Ningun codigo distingue "usuario no existe" de "clave incorrecta" a proposito
 (decision 24) — no pedir ese detalle, es una decision de seguridad, no un

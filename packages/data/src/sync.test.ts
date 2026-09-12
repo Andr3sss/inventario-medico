@@ -280,6 +280,71 @@ describe('cambios que bajan del servidor', () => {
     expect((await db.inboxSync.toArray())[0]?.aplicado).toBe(1);
   });
 
+  it('revoca el desbloqueo offline cuando baja un perfil inactivo', async () => {
+    const usuarioId = 'u-central-revocado';
+    await db.perfilesCentrales.put({
+      usuarioId,
+      nombre: 'Cuenta revocada',
+      rol: 'AUXILIAR',
+      activo: true,
+      validoHasta: Number.MAX_SAFE_INTEGER,
+    });
+    await db.credencialesOffline.put({
+      usuarioId,
+      identificador: 'revocada@crearcos.test',
+      nombre: 'Cuenta revocada',
+      rol: 'AUXILIAR',
+      dispositivoId: SESION.dispositivoId,
+      hash: 'derivado-de-prueba',
+      sal: 'sal-de-prueba',
+      iteraciones: 1_000,
+      creadaEn: reloj.ahora(),
+      verificadaEn: reloj.ahora(),
+      validaHasta: reloj.ahora() + 60_000,
+      intentosFallidos: 0,
+      bloqueadoHasta: null,
+      revocadaEn: null,
+      motivoRevocacion: null,
+    });
+    const respuesta: RespuestaSync = {
+      ...respuestaVacia,
+      cursorServidor: '43',
+      commits: [
+        {
+          secuenciaServidor: '43',
+          commitId: '00000000-0000-4000-8000-000000000043',
+          creadoEn: new Date(reloj.ahora()).toISOString(),
+          cambios: [
+            {
+              ordinal: 0,
+              entidadTipo: 'PERFIL',
+              entidadId: usuarioId,
+              version: 2,
+              eliminado: false,
+              payload: { nombre: 'Cuenta revocada', rol: 'AUXILIAR', activo: false },
+            },
+          ],
+        },
+      ],
+    };
+
+    await sincronizar(
+      db,
+      transporteQue(() => Promise.resolve(respuesta)),
+      opcionesSync(),
+    );
+
+    expect((await db.perfilesCentrales.get(usuarioId))?.activo).toBe(false);
+    expect(await db.credencialesOffline.get(usuarioId)).toMatchObject({
+      revocadaEn: reloj.ahora(),
+      motivoRevocacion: 'PERFIL_CENTRAL_INACTIVO',
+    });
+    expect((await db.auditoriaAcceso.toArray())[0]).toMatchObject({
+      usuarioId,
+      accion: 'REVOCACION_OFFLINE',
+    });
+  });
+
   it('ignora una version mas vieja que la local', async () => {
     const remota = piezaDe({ estado: 'EN_REPROCESAMIENTO', version: 1 });
     const resumen = await sincronizar(

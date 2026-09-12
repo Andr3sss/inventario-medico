@@ -1,16 +1,49 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AREAS, areaInicial } from '@crearcos/core';
+import { listarAccesosOffline, type ResumenAccesoOffline } from '@crearcos/data';
 import { useApp } from '../datos/contexto.js';
 import { EtiquetaBandeja } from '../componentes/EtiquetaBandeja.js';
+import { formatearFecha } from '../datos/presentacion.js';
 
 export function Ingreso(): ReactElement {
-  const { entrar, sesion, persistente, centralConfigurado, modoDemoLocal } = useApp();
+  const {
+    ahora,
+    centralConfigurado,
+    db,
+    enLinea,
+    entrar,
+    entrarOffline,
+    modoDemoLocal,
+    persistente,
+    sesion,
+  } = useApp();
   const [usuario, setUsuario] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [usarPin, setUsarPin] = useState(centralConfigurado && !enLinea);
+  const [accesosOffline, setAccesosOffline] = useState<readonly ResumenAccesoOffline[]>([]);
+  const hayAccesoDisponible = accesosOffline.some((acceso) => acceso.estado === 'DISPONIBLE');
+
+  useEffect(() => {
+    if (!centralConfigurado) return undefined;
+    let vigente = true;
+    void listarAccesosOffline(db, ahora()).then((accesos) => {
+      if (!vigente) return;
+      setAccesosOffline(accesos);
+      const primero = accesos.find((acceso) => acceso.estado === 'DISPONIBLE');
+      if (primero !== undefined) setUsuario(primero.identificador);
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [ahora, centralConfigurado, db]);
+
+  useEffect(() => {
+    if (centralConfigurado && !enLinea) setUsarPin(true);
+  }, [centralConfigurado, enLinea]);
 
   if (sesion !== null) {
     const destino = areaInicial(sesion.rol);
@@ -20,7 +53,9 @@ export function Ingreso(): ReactElement {
   const enviar = async (): Promise<void> => {
     setEnviando(true);
     setError(null);
-    const resultado = await entrar(usuario.trim(), contrasena);
+    const resultado = usarPin
+      ? await entrarOffline(usuario.trim(), contrasena)
+      : await entrar(usuario.trim(), contrasena);
     if (!resultado.ok) {
       const espera = resultado.error.esperaMs;
       setError(
@@ -54,9 +89,43 @@ export function Ingreso(): ReactElement {
       <section className="ingreso__formulario">
         <div className="ingreso__caja">
           <h1 className="ingreso__titulo">Entrar</h1>
+          {centralConfigurado && (
+            <div className="ingreso__metodos" role="group" aria-label="Método de acceso">
+              <button
+                type="button"
+                className={!usarPin ? 'activo' : ''}
+                disabled={!enLinea}
+                onClick={() => {
+                  setUsarPin(false);
+                  setUsuario('');
+                  setContrasena('');
+                  setError(null);
+                }}
+              >
+                Cuenta central
+              </button>
+              <button
+                type="button"
+                className={usarPin ? 'activo' : ''}
+                onClick={() => {
+                  setUsarPin(true);
+                  setUsuario(
+                    accesosOffline.find((acceso) => acceso.estado === 'DISPONIBLE')
+                      ?.identificador ?? '',
+                  );
+                  setContrasena('');
+                  setError(null);
+                }}
+              >
+                PIN del dispositivo
+              </button>
+            </div>
+          )}
           <p className="ingreso__ayuda">
             {centralConfigurado
-              ? 'Usa el correo y la clave que te dio el Administrador. Una sesion ya validada puede continuar sin conexion.'
+              ? usarPin
+                ? 'Desbloqueo local para personal enrolado previamente. No necesita internet.'
+                : 'Usa el correo y la contraseña que te dio el Administrador.'
               : 'Usa la cuenta local habilitada para desarrollo.'}
           </p>
 
@@ -67,27 +136,56 @@ export function Ingreso(): ReactElement {
             }}
           >
             <label className="campo">
-              <span className="campo__etiqueta">{centralConfigurado ? 'Correo' : 'Usuario'}</span>
-              <input
-                className="campo__control"
-                name="usuario"
-                autoComplete="username"
-                autoCapitalize="none"
-                spellCheck={false}
-                value={usuario}
-                onChange={(evento) => {
-                  setUsuario(evento.target.value);
-                }}
-              />
+              <span className="campo__etiqueta">
+                {centralConfigurado && !usarPin ? 'Correo' : 'Usuario'}
+              </span>
+              {usarPin && accesosOffline.length > 0 ? (
+                <select
+                  className="campo__control"
+                  name="usuario"
+                  required
+                  value={usuario}
+                  onChange={(evento) => {
+                    setUsuario(evento.target.value);
+                  }}
+                >
+                  {accesosOffline.map((acceso) => (
+                    <option
+                      key={acceso.usuarioId}
+                      value={acceso.identificador}
+                      disabled={acceso.estado !== 'DISPONIBLE'}
+                    >
+                      {acceso.nombre} · {etiquetaEstado(acceso)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="campo__control"
+                  name="usuario"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  required
+                  value={usuario}
+                  onChange={(evento) => {
+                    setUsuario(evento.target.value);
+                  }}
+                />
+              )}
             </label>
 
             <label className="campo">
-              <span className="campo__etiqueta">Contrasena</span>
+              <span className="campo__etiqueta">{usarPin ? 'PIN offline' : 'Contraseña'}</span>
               <input
                 className="campo__control"
                 name="contrasena"
                 type="password"
-                autoComplete="current-password"
+                autoComplete={usarPin ? 'off' : 'current-password'}
+                inputMode={usarPin ? 'numeric' : undefined}
+                pattern={usarPin ? '[0-9]{8}' : undefined}
+                maxLength={usarPin ? 8 : undefined}
+                required
                 value={contrasena}
                 onChange={(evento) => {
                   setContrasena(evento.target.value);
@@ -95,10 +193,24 @@ export function Ingreso(): ReactElement {
               />
             </label>
 
-            <button className="boton" type="submit" disabled={enviando}>
-              {enviando ? 'Verificando' : 'Entrar'}
+            <button
+              className="boton"
+              type="submit"
+              disabled={enviando || (usarPin && !hayAccesoDisponible)}
+            >
+              {enviando ? 'Verificando' : usarPin ? 'Desbloquear' : 'Entrar'}
             </button>
           </form>
+
+          {centralConfigurado && usarPin && !hayAccesoDisponible && (
+            <div className="aviso aviso--neutro">
+              <p>
+                {accesosOffline.length === 0
+                  ? 'Este equipo todavía no tiene un PIN offline. Conéctalo e ingresa una vez con la cuenta central para enrolarlo.'
+                  : 'Los accesos offline de este equipo están vencidos, bloqueados o revocados. Conéctalo e ingresa con la cuenta central.'}
+              </p>
+            </div>
+          )}
 
           {error !== null && (
             <p className="aviso" role="alert">
@@ -119,4 +231,11 @@ export function Ingreso(): ReactElement {
       </section>
     </div>
   );
+}
+
+function etiquetaEstado(acceso: ResumenAccesoOffline): string {
+  if (acceso.estado === 'DISPONIBLE') return `vigente hasta ${formatearFecha(acceso.validaHasta)}`;
+  if (acceso.estado === 'BLOQUEADO') return 'bloqueado temporalmente';
+  if (acceso.estado === 'EXPIRADO') return 'vencido';
+  return 'revocado';
 }

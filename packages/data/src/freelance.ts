@@ -62,13 +62,19 @@ export async function generarTokenFreelance(
   opciones: OpcionesFreelance,
 ): Promise<Resultado<TokenFreelanceCreado, ErrorFreelance>> {
   if (!ROLES_GENERAN_TOKEN.includes(sesion.rol)) {
-    return fallo({ codigo: 'NO_AUTORIZADO', mensaje: 'Solo Contable o Administrador generan enlaces de freelance' });
+    return fallo({
+      codigo: 'NO_AUTORIZADO',
+      mensaje: 'Solo Contable o Administrador generan enlaces de freelance',
+    });
   }
 
   const idMaleta = crearMaletaId(maletaIdTexto);
   const maleta = await db.maletas.get(idMaleta);
   if (maleta === undefined) {
-    return fallo({ codigo: 'MALETA_NO_ENCONTRADA', mensaje: `La maleta ${maletaIdTexto} no existe` });
+    return fallo({
+      codigo: 'MALETA_NO_ENCONTRADA',
+      mensaje: `La maleta ${maletaIdTexto} no existe`,
+    });
   }
   if ((ESTADOS_TERMINALES_MALETA as readonly Maleta['estado'][]).includes(maleta.estado)) {
     return fallo({
@@ -109,7 +115,10 @@ export async function revocarTokenFreelance(
   sesion: Sesion,
 ): Promise<Resultado<true, ErrorFreelance>> {
   if (!ROLES_GENERAN_TOKEN.includes(sesion.rol)) {
-    return fallo({ codigo: 'NO_AUTORIZADO', mensaje: 'Solo Contable o Administrador revocan enlaces de freelance' });
+    return fallo({
+      codigo: 'NO_AUTORIZADO',
+      mensaje: 'Solo Contable o Administrador revocan enlaces de freelance',
+    });
   }
   const fila = await db.tokensFreelance.get(token);
   if (fila === undefined) {
@@ -119,16 +128,25 @@ export async function revocarTokenFreelance(
   return ok(true);
 }
 
-async function validar(db: BaseLocal, token: string): Promise<Resultado<FilaTokenFreelance, ErrorFreelance>> {
+async function validar(
+  db: BaseLocal,
+  token: string,
+): Promise<Resultado<FilaTokenFreelance, ErrorFreelance>> {
   const fila = await db.tokensFreelance.get(token);
   if (fila === undefined) {
-    return fallo({ codigo: 'TOKEN_INVALIDO', mensaje: 'El enlace no es valido en este dispositivo' });
+    return fallo({
+      codigo: 'TOKEN_INVALIDO',
+      mensaje: 'El enlace no es valido en este dispositivo',
+    });
   }
   if (fila.revocado) {
     return fallo({ codigo: 'TOKEN_REVOCADO', mensaje: 'Este enlace fue revocado' });
   }
   const maleta = await db.maletas.get(crearMaletaId(fila.maletaId));
-  if (maleta === undefined || (ESTADOS_TERMINALES_MALETA as readonly Maleta['estado'][]).includes(maleta.estado)) {
+  if (
+    maleta === undefined ||
+    (ESTADOS_TERMINALES_MALETA as readonly Maleta['estado'][]).includes(maleta.estado)
+  ) {
     return fallo({
       codigo: 'MALETA_EN_ESTADO_TERMINAL',
       mensaje: 'La cirugia asociada a este enlace ya terminó',
@@ -184,6 +202,7 @@ export async function entrarConToken(
     rol: 'FREELANCE',
     dispositivoId: await idDispositivo(db),
     expiraEn: relojPared + VIGENCIA_FREELANCE_MS,
+    origen: 'FREELANCE_LOCAL',
   };
   await db.meta.put({ clave: CLAVE_SESION, valor: sesion });
   return ok(sesion);

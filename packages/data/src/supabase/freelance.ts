@@ -91,6 +91,7 @@ export async function entrarConTokenCentral(
       dispositivoId,
       expiraEn,
       sesionFreelanceId: sesionId,
+      origen: 'FREELANCE_CENTRAL',
     };
     await db.meta.put({ clave: CLAVE_SESION, valor: sesion });
     return ok(sesion);

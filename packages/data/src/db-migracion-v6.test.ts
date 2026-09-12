@@ -35,8 +35,8 @@ class BaseVersion5 extends Dexie {
   }
 }
 
-describe('migraciones locales v6 y v7', () => {
-  it('reabre el historial, reinicia el PULL e indexa la edad de la cola', async () => {
+describe('migraciones locales v6, v7 y v8', () => {
+  it('conserva datos anteriores y crea las tablas de acceso offline', async () => {
     secuenciaBase += 1;
     const nombre = `migracion-v6-${secuenciaBase.toString()}`;
     const idMaleta = maletaId('00000000-0000-4000-8000-000000000101');
@@ -116,6 +116,8 @@ describe('migraciones locales v6 y v7', () => {
       expect(await actual.inboxSync.get(inbox.id)).toMatchObject({ aplicado: 0, error: null });
       expect(await actual.meta.get('cursor-servidor')).toBeUndefined();
       expect((await actual.operacionesSync.toArray())[0]?.creadoEn).toBe(1_700_000_000_000);
+      expect(await actual.credencialesOffline.count()).toBe(0);
+      expect(await actual.auditoriaAcceso.count()).toBe(0);
     } finally {
       await actual.delete();
     }

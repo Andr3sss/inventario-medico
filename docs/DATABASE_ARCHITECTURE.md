@@ -25,6 +25,10 @@ de `packages/data`; no distribuye consultas SQL ni claves privilegiadas.
   `EN_CONFLICTO` y se conservan todos los candidatos.
 - Los registros demo llevan `origen` y `lote_semilla_id`; la auditoría del
   handoff vive en el esquema privado y sobrevive a la purga.
+- Dexie v8 conserva `credencialesOffline` y `auditoriaAcceso`. La primera solo
+  guarda el derivado PBKDF2 del PIN y su autorización temporal por dispositivo;
+  la segunda explica cada decisión local de acceso sin sustituir la auditoría
+  central.
 
 ## Invariantes relevantes
 
@@ -92,6 +96,16 @@ forzado. El rol real se consulta en `perfiles`; nunca se confía en
 RPC con `service_role` solo son invocadas por Edge Functions o scripts de
 operador. El esquema `private` contiene helpers, cabeza del cursor, desafíos y
 auditoría administrativa.
+
+Supabase Auth y `perfiles.activo` siguen siendo la autoridad de identidad. El
+PIN offline no es una segunda cuenta central, no se envía al servidor y solo
+desbloquea una réplica enrolada durante siete días. La reconexión valida el
+token con Auth y consulta el perfil protegido por RLS antes de renovar. Una
+revocación recibida por sync invalida también cualquier sesión offline abierta.
+El UUID es una identidad lógica, no un secreto ni una prueba de hardware. La
+amenaza de copia completa de los datos del navegador se mitiga fuera de la PWA
+con dispositivos administrados, perfiles de sistema separados y cifrado de
+disco; borrar datos del sitio elimina también el enrolamiento.
 
 Las migraciones ordenadas están en `supabase/migrations`. Sus timestamps
 coinciden con el historial remoto para que CLI y MCP no diverjan.

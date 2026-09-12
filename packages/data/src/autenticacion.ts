@@ -2,6 +2,10 @@ import { fallo, ok, usuarioId as crearUsuarioId, type Resultado, type Rol } from
 import { CLAVE_SESION, type BaseLocal, type FilaUsuario } from './db.js';
 import type { Sesion } from './escaneo.js';
 import { derivadosIguales, derivarSecreto, generarSal } from './criptografia.js';
+import { validarSesionOfflineGuardada } from './acceso-offline.js';
+import { VIGENCIA_FREELANCE_MS, VIGENCIA_SESION_MS } from './configuracion-auth.js';
+
+export { VIGENCIA_FREELANCE_MS, VIGENCIA_SESION_MS } from './configuracion-auth.js';
 
 /**
  * Iteraciones de PBKDF2 para produccion. Las pruebas bajan este numero porque
@@ -12,10 +16,6 @@ export const ITERACIONES = 210_000;
 /** Intentos antes de bloquear, y cuanto dura el bloqueo. */
 export const INTENTOS_MAXIMOS = 5;
 export const BLOQUEO_MS = 5 * 60 * 1000;
-
-/** Duracion de la sesion. El freelance dura lo que dura su cirugia, no mas. */
-export const VIGENCIA_SESION_MS = 12 * 60 * 60 * 1000;
-export const VIGENCIA_FREELANCE_MS = 6 * 60 * 60 * 1000;
 
 export type CodigoErrorAuth =
   | 'CREDENCIALES_INVALIDAS'
@@ -181,13 +181,19 @@ export async function sesionActual(
   if (sesion === undefined) {
     return fallo({ codigo: 'SIN_SESION', mensaje: 'No hay sesion abierta', esperaMs: null });
   }
-  if (sesion.expiraEn <= opciones.ahora()) {
+  const ahora = opciones.ahora();
+  if (sesion.expiraEn <= ahora) {
     await db.meta.delete(CLAVE_SESION);
     return fallo({
       codigo: 'SESION_EXPIRADA',
       mensaje: 'La sesion caduco, vuelve a entrar',
       esperaMs: null,
     });
+  }
+  const errorOffline = await validarSesionOfflineGuardada(db, sesion, ahora);
+  if (errorOffline !== null) {
+    await db.meta.delete(CLAVE_SESION);
+    return fallo(errorOffline);
   }
   return ok(sesion);
 }

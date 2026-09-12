@@ -408,6 +408,33 @@ fecha del rechazo y el momento de creacion de cada operacion; una cola se alerta
 con tres intentos o quince minutos, y un PULL se considera atrasado tras cinco
 minutos con conexion disponible.
 
+## 41. El PIN offline autoriza un dispositivo por una ventana acotada
+
+El primer acceso siempre requiere Supabase Auth. Después de validar la identidad
+y el perfil activo, el usuario crea un PIN local distinto de su contraseña
+central. El PIN tiene exactamente ocho dígitos, rechaza secuencias y repeticiones
+débiles, y solo se guarda como PBKDF2-SHA256 con sal individual y 310.000
+iteraciones. La credencial queda ligada al usuario y al UUID lógico estable del
+dispositivo. Este vínculo evita usar solo la fila de credencial en otra
+instalación, pero no es atestación de hardware: quien pueda clonar todo el
+almacenamiento del navegador también copiaría el UUID. En producción debe
+complementarse con control del equipo, perfil de navegador y cifrado de disco.
+
+La autorización dura siete días y cada sesión offline hasta doce horas, sin
+superar la vigencia restante. Cinco errores bloquean quince minutos. Una
+sincronización central correcta renueva la ventana; un error de transporte no
+la renueva ni la revoca. Al recuperar red, `auth.getUser()` confirma que el token
+pertenece al mismo usuario y `perfiles` confirma que continúa activo. Un perfil
+inactivo o eliminado revoca la credencial y una bitácora local de solo agregado
+registra enrolamiento, intentos, expiración, revalidación y revocación.
+
+Las operaciones creadas antes de recibir una revocación conservan para siempre
+su actor original. No se sincronizan con una identidad distinta ni se
+reatribuyen en el cliente: permanecen pendientes o pasan a cuarentena según la
+respuesta autoritativa, desde donde soporte puede exportar la evidencia y tomar
+una decisión explícita. Esta política técnica necesita firma de negocio y
+seguridad antes de producción.
+
 ## Pendiente de decidir
 
 - Tamaño óptimo del lote de sincronización (el límite defensivo actual es 200),

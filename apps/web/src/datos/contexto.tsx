@@ -12,6 +12,8 @@ import { fallo, type Resultado } from '@crearcos/core';
 import {
   cerrarSesion,
   cerrarSesionCentral,
+  configurarAccesoOffline,
+  consolidarRevalidacionCentral,
   configuracionSupabaseValida,
   crearAdministracionCentral,
   crearClienteSupabase,
@@ -20,8 +22,13 @@ import {
   entrarConTokenCentral,
   entrarConToken,
   diagnosticarSincronizacion,
+  hayAccesoOfflineVigente,
+  iniciarSesionOffline,
   iniciarSesion,
   iniciarSesionCentral,
+  renovarAccesoOffline,
+  revalidarSesionCentral,
+  revocarAccesoOffline,
   sesionActual,
   sincronizar,
   validarTokenFreelance,
@@ -45,6 +52,8 @@ interface ValorApp {
   readonly diagnosticoSync: DiagnosticoSincronizacion | null;
   readonly enLinea: boolean;
   readonly sincronizando: boolean;
+  readonly requiereConfigurarAccesoOffline: boolean;
+  readonly revalidandoCentral: boolean;
   readonly centralConfigurado: boolean;
   readonly modoDemoLocal: boolean;
   readonly administracionCentral: AdministracionCentral | null;
@@ -52,6 +61,11 @@ interface ValorApp {
     usuario: string,
     contrasena: string,
   ) => Promise<Resultado<SesionActiva, ErrorAuth>>;
+  readonly entrarOffline: (
+    usuario: string,
+    pin: string,
+  ) => Promise<Resultado<SesionActiva, ErrorAuth>>;
+  readonly configurarPinOffline: (pin: string) => Promise<Resultado<true, ErrorAuth>>;
   readonly entrarFreelance: (
     token: string,
     nombre: string,
@@ -84,6 +98,8 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
   const [diagnosticoSync, setDiagnosticoSync] = useState<DiagnosticoSincronizacion | null>(null);
   const [enLinea, setEnLinea] = useState(globalThis.navigator.onLine);
   const [sincronizando, setSincronizando] = useState(false);
+  const [requiereConfigurarAccesoOffline, setRequiereConfigurarAccesoOffline] = useState(false);
+  const [revalidandoCentral, setRevalidandoCentral] = useState(false);
   const sincronizacionEnCurso = useRef(false);
   const administracionCentral = useMemo(
     () =>
@@ -109,11 +125,36 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
       setDb(arranque.db);
       setPersistente(arranque.persistente);
       setSesion(recuperada.ok ? recuperada.valor : null);
+      if (
+        recuperada.ok &&
+        recuperada.valor.origen === 'CENTRAL' &&
+        recuperada.valor.rol !== 'FREELANCE'
+      ) {
+        const configurado = await hayAccesoOfflineVigente(arranque.db, recuperada.valor, ahora());
+        if (!cancelado()) setRequiereConfigurarAccesoOffline(!configurado);
+      }
     })();
     return () => {
       vigente = false;
     };
   }, []);
+
+  // La sesión visible también caduca mientras la PWA permanece abierta.
+  useEffect(() => {
+    if (db === null || sesion === null) return undefined;
+    const restante = Math.max(0, sesion.expiraEn - ahora());
+    const temporizador = globalThis.setTimeout(() => {
+      void sesionActual(db, { ahora }).then((resultado) => {
+        if (!resultado.ok) {
+          setSesion(null);
+          setRequiereConfigurarAccesoOffline(false);
+        }
+      });
+    }, restante);
+    return () => {
+      globalThis.clearTimeout(temporizador);
+    };
+  }, [db, sesion]);
 
   const refrescarDiagnosticoSync = useCallback(async (): Promise<void> => {
     if (db === null) return;
@@ -153,6 +194,12 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
       await refrescarDiagnosticoSync();
       return;
     }
+    // No se usa una sesión Auth posiblemente ajena mientras el PIN local no
+    // haya sido revalidado expresamente contra la identidad central.
+    if (sesion.origen === 'OFFLINE') {
+      await refrescarDiagnosticoSync();
+      return;
+    }
     const transporte =
       sesion.sesionFreelanceId === undefined
         ? transporteCentral
@@ -162,13 +209,22 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
     sincronizacionEnCurso.current = true;
     setSincronizando(true);
     try {
-      await sincronizar(db, transporte, {
+      const resumen = await sincronizar(db, transporte, {
         dispositivoId: sesion.dispositivoId,
         ahora,
         nombreDispositivo: globalThis.navigator.userAgent.slice(0, 120),
         plataforma: 'web',
         versionApp: '0.1.0',
       });
+      if (
+        resumen.estado === 'COMPLETADO' &&
+        sesion.origen === 'CENTRAL' &&
+        sesion.rol !== 'FREELANCE'
+      ) {
+        await renovarAccesoOffline(db, sesion, ahora());
+      }
+      const vigente = await sesionActual(db, { ahora });
+      if (!vigente.ok) setSesion(null);
     } catch {
       // El motor persiste el diagnostico antes de propagar un error inesperado.
     } finally {
@@ -183,7 +239,9 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
 
   // Reintento oportunista: IndexedDB sigue siendo operativa si no hay red.
   useEffect(() => {
-    if (db === null || sesion === null || clienteCentral === null) return undefined;
+    if (db === null || sesion === null || sesion.origen === 'OFFLINE' || clienteCentral === null) {
+      return undefined;
+    }
     let vigente = true;
     const ejecutar = (): void => {
       if (!vigente) return;
@@ -212,11 +270,109 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
                 mensaje: 'Supabase no esta configurado en este entorno',
                 esperaMs: null,
               });
-      if (resultado.ok) setSesion(resultado.valor);
+      if (resultado.ok) {
+        setSesion(resultado.valor);
+        if (clienteCentral !== null && resultado.valor.rol !== 'FREELANCE') {
+          const configurado = await renovarAccesoOffline(db, resultado.valor, ahora(), true);
+          setRequiereConfigurarAccesoOffline(!configurado);
+        } else {
+          setRequiereConfigurarAccesoOffline(false);
+        }
+      }
       return resultado;
     },
     [db],
   );
+
+  const entrarOffline = useCallback(
+    async (usuario: string, pin: string) => {
+      if (db === null) throw new Error('El dispositivo todavía no está listo');
+      const resultado = await iniciarSesionOffline(db, usuario, pin, { ahora });
+      if (resultado.ok) {
+        setSesion(resultado.valor);
+        setRequiereConfigurarAccesoOffline(false);
+      }
+      return resultado;
+    },
+    [db],
+  );
+
+  const configurarPinOffline = useCallback(
+    async (pin: string): Promise<Resultado<true, ErrorAuth>> => {
+      if (db === null || sesion === null) {
+        return fallo<ErrorAuth>({
+          codigo: 'SIN_SESION',
+          mensaje: 'No hay una sesión central para habilitar el PIN',
+          esperaMs: null,
+        });
+      }
+      const resultado = await configurarAccesoOffline(db, sesion, pin, { ahora });
+      if (!resultado.ok) return resultado;
+      setRequiereConfigurarAccesoOffline(false);
+      return { ok: true, valor: true };
+    },
+    [db, sesion],
+  );
+
+  // Una sesión abierta con PIN debe volver a probar su identidad al recuperar red.
+  useEffect(() => {
+    if (
+      db === null ||
+      sesion === null ||
+      sesion.origen !== 'OFFLINE' ||
+      clienteCentral === null ||
+      !enLinea
+    ) {
+      return undefined;
+    }
+    let vigente = true;
+    const cancelado = () => !vigente;
+    let temporizador: number | null = null;
+    const revalidar = (): void => {
+      let reintentar = false;
+      setRevalidandoCentral(true);
+      void revalidarSesionCentral(clienteCentral, sesion)
+        .then(async (resultado) => {
+          if (cancelado()) return;
+          if (resultado.estado === 'NO_DISPONIBLE') {
+            reintentar = true;
+            return;
+          }
+          if (resultado.estado === 'VALIDA') {
+            const actualizada = await consolidarRevalidacionCentral(
+              db,
+              sesion,
+              resultado.perfil,
+              ahora(),
+            );
+            if (!cancelado()) setSesion(actualizada);
+            return;
+          }
+          if (resultado.codigo === 'PERFIL_INACTIVO') {
+            await revocarAccesoOffline(db, sesion.usuarioId, ahora(), resultado.motivo);
+          }
+          try {
+            await cerrarSesionCentral(db, clienteCentral);
+          } finally {
+            if (!cancelado()) setSesion(null);
+          }
+        })
+        .catch(() => {
+          // Un fallo transitorio al persistir/revalidar no concede ni revoca acceso.
+          reintentar = true;
+        })
+        .finally(() => {
+          if (cancelado()) return;
+          setRevalidandoCentral(false);
+          if (reintentar) temporizador = globalThis.setTimeout(revalidar, 15_000);
+        });
+    };
+    revalidar();
+    return () => {
+      vigente = false;
+      if (temporizador !== null) globalThis.clearTimeout(temporizador);
+    };
+  }, [db, enLinea, sesion]);
 
   const entrarFreelance = useCallback(
     async (token: string, nombre: string) => {
@@ -243,9 +399,14 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
 
   const salir = useCallback(async () => {
     if (db === null) return;
-    if (clienteCentral === null) await cerrarSesion(db);
-    else await cerrarSesionCentral(db, clienteCentral);
-    setSesion(null);
+    try {
+      if (clienteCentral === null) await cerrarSesion(db);
+      else await cerrarSesionCentral(db, clienteCentral);
+    } finally {
+      // La salida local no debe quedar visualmente abierta si Supabase falla.
+      setSesion(null);
+      setRequiereConfigurarAccesoOffline(false);
+    }
   }, [db]);
 
   const valor = useMemo<ValorApp | null>(
@@ -261,10 +422,14 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
             diagnosticoSync,
             enLinea,
             sincronizando,
+            requiereConfigurarAccesoOffline,
+            revalidandoCentral,
             centralConfigurado,
             modoDemoLocal,
             administracionCentral,
             entrar,
+            entrarOffline,
+            configurarPinOffline,
             entrarFreelance,
             validarFreelance,
             salir,
@@ -278,8 +443,12 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
       diagnosticoSync,
       enLinea,
       sincronizando,
+      requiereConfigurarAccesoOffline,
+      revalidandoCentral,
       administracionCentral,
       entrar,
+      entrarOffline,
+      configurarPinOffline,
       entrarFreelance,
       validarFreelance,
       salir,

@@ -8,6 +8,12 @@ import {
   type SesionActiva,
 } from '../autenticacion.js';
 import type { ClienteSupabase } from './cliente.js';
+import type { Database } from './database.types.js';
+
+type PerfilFila = Pick<
+  Database['public']['Tables']['perfiles']['Row'],
+  'id' | 'nombre' | 'rol' | 'activo'
+>;
 
 const ROLES: readonly Rol[] = [
   'SISTEMA',
@@ -23,6 +29,21 @@ function esRol(valor: string): valor is Rol {
   return ROLES.includes(valor as Rol);
 }
 
+export interface PerfilCentralValidado {
+  readonly usuarioId: string;
+  readonly nombre: string;
+  readonly rol: Exclude<Rol, 'SISTEMA'>;
+}
+
+export type RevalidacionSesionCentral =
+  | { readonly estado: 'VALIDA'; readonly perfil: PerfilCentralValidado }
+  | {
+      readonly estado: 'INVALIDA';
+      readonly codigo: 'SESION_AUSENTE' | 'IDENTIDAD_NO_COINCIDE' | 'PERFIL_INACTIVO';
+      readonly motivo: string;
+    }
+  | { readonly estado: 'NO_DISPONIBLE'; readonly motivo: string };
+
 /** Supabase Auth es la autoridad; IndexedDB solo conserva el perfil habilitado. */
 export async function iniciarSesionCentral(
   db: BaseLocal,
@@ -31,11 +52,18 @@ export async function iniciarSesionCentral(
   contrasena: string,
   opciones: OpcionesAuth,
 ): Promise<Resultado<SesionActiva, ErrorAuth>> {
-  const { data: auth, error: errorAuth } = await cliente.auth.signInWithPassword({
-    email: correo,
-    password: contrasena,
-  });
+  let respuestaAuth: Awaited<ReturnType<ClienteSupabase['auth']['signInWithPassword']>>;
+  try {
+    respuestaAuth = await cliente.auth.signInWithPassword({
+      email: correo,
+      password: contrasena,
+    });
+  } catch (causa) {
+    return fallo(errorNoDisponible(causa));
+  }
+  const { data: auth, error: errorAuth } = respuestaAuth;
   if (errorAuth) {
+    if (esFalloDeRed(errorAuth)) return fallo(errorNoDisponible(errorAuth));
     return fallo({
       codigo: 'CREDENCIALES_INVALIDAS',
       mensaje: 'Correo o contrasena incorrectos',
@@ -43,10 +71,19 @@ export async function iniciarSesionCentral(
     });
   }
 
-  const { data: perfiles, error: errorPerfil } = await cliente
-    .from('perfiles')
-    .select('id,nombre,rol,activo')
-    .order('nombre');
+  let perfiles: PerfilFila[] | null;
+  let errorPerfil: unknown;
+  try {
+    const respuestaPerfiles = await cliente
+      .from('perfiles')
+      .select('id,nombre,rol,activo')
+      .order('nombre');
+    perfiles = respuestaPerfiles.data;
+    errorPerfil = respuestaPerfiles.error;
+  } catch (causa) {
+    return fallo(errorNoDisponible(causa));
+  }
+  if (errorPerfil && esFalloDeRed(errorPerfil)) return fallo(errorNoDisponible(errorPerfil));
   const perfil = perfiles?.find((fila) => fila.id === auth.user.id) ?? null;
   if (errorPerfil || perfil === null || !esRol(perfil.rol)) {
     await cliente.auth.signOut({ scope: 'local' });
@@ -56,6 +93,7 @@ export async function iniciarSesionCentral(
       esperaMs: null,
     });
   }
+  const perfilesValidos = perfiles ?? [];
   if (!perfil.activo) {
     await cliente.auth.signOut({ scope: 'local' });
     return fallo({
@@ -80,9 +118,11 @@ export async function iniciarSesionCentral(
     rol: perfil.rol,
     dispositivoId: await idDispositivo(db),
     expiraEn: ahora + VIGENCIA_SESION_MS,
+    origen: 'CENTRAL',
+    identificador: correo.trim().toLocaleLowerCase('en-US'),
   };
   await db.transaction('rw', [db.perfilesCentrales, db.meta], async () => {
-    const centrales = perfiles.flatMap((fila) =>
+    const centrales = perfilesValidos.flatMap((fila) =>
       esRol(fila.rol)
         ? [
             {
@@ -101,6 +141,63 @@ export async function iniciarSesionCentral(
   return ok(sesion);
 }
 
+/**
+ * Confirma por red que la sesión Auth sigue perteneciendo al mismo usuario y
+ * que su perfil de negocio continúa activo. Un error de transporte nunca se
+ * interpreta como revocación.
+ */
+export async function revalidarSesionCentral(
+  cliente: ClienteSupabase,
+  sesion: SesionActiva,
+): Promise<RevalidacionSesionCentral> {
+  try {
+    const { data: auth, error: errorAuth } = await cliente.auth.getUser();
+    if (errorAuth) {
+      return esFalloDeRed(errorAuth)
+        ? { estado: 'NO_DISPONIBLE', motivo: mensaje(errorAuth) }
+        : {
+            estado: 'INVALIDA',
+            codigo: 'SESION_AUSENTE',
+            motivo: 'La sesión central ya no es válida',
+          };
+    }
+    if (auth.user.id !== sesion.usuarioId) {
+      return {
+        estado: 'INVALIDA',
+        codigo: 'IDENTIDAD_NO_COINCIDE',
+        motivo: 'La identidad central no coincide con la sesión local',
+      };
+    }
+    const { data: perfil, error: errorPerfil } = await cliente
+      .from('perfiles')
+      .select('id,nombre,rol,activo')
+      .eq('id', auth.user.id)
+      .maybeSingle();
+    if (errorPerfil) {
+      return esFalloDeRed(errorPerfil)
+        ? { estado: 'NO_DISPONIBLE', motivo: mensaje(errorPerfil) }
+        : {
+            estado: 'INVALIDA',
+            codigo: 'PERFIL_INACTIVO',
+            motivo: 'El perfil central no pudo validarse',
+          };
+    }
+    if (perfil === null || !perfil.activo || !esRol(perfil.rol) || perfil.rol === 'SISTEMA') {
+      return {
+        estado: 'INVALIDA',
+        codigo: 'PERFIL_INACTIVO',
+        motivo: 'El perfil central está inactivo o fue retirado',
+      };
+    }
+    return {
+      estado: 'VALIDA',
+      perfil: { usuarioId: perfil.id, nombre: perfil.nombre, rol: perfil.rol },
+    };
+  } catch (causa) {
+    return { estado: 'NO_DISPONIBLE', motivo: mensaje(causa) };
+  }
+}
+
 export async function cerrarSesionCentral(db: BaseLocal, cliente: ClienteSupabase): Promise<void> {
   // scope local invalida la copia del navegador sin cerrar otros dispositivos.
   try {
@@ -108,4 +205,37 @@ export async function cerrarSesionCentral(db: BaseLocal, cliente: ClienteSupabas
   } finally {
     await db.meta.delete(CLAVE_SESION);
   }
+}
+
+function esFalloDeRed(causa: unknown): boolean {
+  if (typeof causa !== 'object' || causa === null) return true;
+  const posible = causa as {
+    readonly status?: unknown;
+    readonly name?: unknown;
+    readonly message?: unknown;
+  };
+  if (posible.status === 0 || (typeof posible.status === 'number' && posible.status >= 500))
+    return true;
+  const nombre = typeof posible.name === 'string' ? posible.name : '';
+  const detalle = typeof posible.message === 'string' ? posible.message : '';
+  const texto = `${nombre} ${detalle}`;
+  return /fetch|network|timeout|conexi[oó]n|retryable/i.test(texto);
+}
+
+function errorNoDisponible(causa: unknown): ErrorAuth {
+  return {
+    codigo: 'SERVICIO_NO_DISPONIBLE',
+    mensaje: `No se pudo contactar a Supabase. ${mensaje(causa)}`,
+    esperaMs: null,
+  };
+}
+
+function mensaje(causa: unknown): string {
+  return causa instanceof Error
+    ? causa.message
+    : typeof causa === 'object' &&
+        causa !== null &&
+        typeof (causa as { message?: unknown }).message === 'string'
+      ? (causa as { message: string }).message
+      : 'Servicio central no disponible';
 }

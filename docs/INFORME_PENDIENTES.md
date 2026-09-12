@@ -1,6 +1,6 @@
 # Informe de carencias y trabajo pendiente para finalizar Crearcos Inventario
 
-**Fecha de corte:** 11 de septiembre de 2026  
+**Fecha de corte:** 12 de septiembre de 2026
 **Fuente principal de requisitos:** `inventario.md`  
 **Alcance de la revisión:** aplicación web/PWA, lógica de dominio, persistencia local, sincronización, PostgreSQL/Supabase, Edge Functions, seguridad, pruebas, operación y preparación para producción.
 
@@ -10,14 +10,14 @@ El proyecto tiene una base técnica avanzada y buena parte del flujo de negocio 
 
 Sin embargo, **el sistema todavía no debe considerarse terminado ni listo para producción**. Los principales motivos son:
 
-1. La trazabilidad histórica no está garantizada entre dispositivos: se sincroniza el estado actual, pero no todo el historial remoto de eventos.
-2. La interfaz puede indicar “Todo sincronizado” aunque existan operaciones rechazadas, errores de proyección o no se haya completado una descarga correcta.
+1. La trazabilidad histórica entre dispositivos ya está cubierta técnicamente, pero falta demostrarla en el escenario E2E y en dispositivos físicos.
+2. El diagnóstico real de sincronización y la cuarentena ya están implementados; falta validarlos contra staging con fallos reales de red y proyección.
 3. No existe una prueba automatizada, repetible y completa del caso crítico de dos dispositivos trabajando sin conexión y generando un conflicto real.
-4. El inicio de sesión inicial o posterior al vencimiento de la sesión no funciona sin internet; esto debe resolverse o delimitarse formalmente frente al requisito de operación continua sin conexión.
+4. El desbloqueo offline ya está implementado para dispositivos previamente enrolados; falta la aprobación formal de la política y su validación en los equipos objetivo.
 5. Faltan validaciones de campo con códigos reales, etiquetas esterilizables, lectores físicos y dispositivos objetivo.
 6. El proyecto Supabase sigue en modo `DEMO`, con el reinicio de demostración habilitado, y todavía no se ha ejecutado una entrega controlada a producción.
 7. La configuración, seguridad, despliegue, respaldo, monitoreo, documentación operativa y aceptación de usuarios finales aún no están cerrados.
-8. El estado del repositorio no representa una versión liberable: existen numerosos cambios sin consolidar ni revisar.
+8. La rama de trabajo ya conserva puntos de transferencia completos, pero aún falta una versión candidata etiquetada y verificada desde un clon limpio.
 
 Por tanto, el estado correcto es **prototipo funcional avanzado, pendiente de endurecimiento, validación integral y puesta en producción controlada**.
 
@@ -41,7 +41,7 @@ No deben contarse nuevamente como trabajo faltante los siguientes componentes, a
 - Datos de demostración, purga de la demostración y documentación de entrega a producción.
 - Cuatro Edge Functions desplegadas y activas: `sync`, `prepare-production`, `administration` y `freelance-access`.
 - Migraciones locales y remotas coincidentes al momento de la revisión.
-- Verificación actual del frontend y paquetes: lint, comprobación de tipos, compilación y 185 pruebas TypeScript aprobadas.
+- Verificación actual del frontend y paquetes: lint, comprobación de tipos, compilación y 219 pruebas TypeScript aprobadas.
 - Auditoría actual de dependencias npm sin vulnerabilidades conocidas.
 - Suite pgTAP existente con 41 aserciones aprobadas contra la base remota.
 
@@ -64,7 +64,7 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 
 | Requisito                                                  | Estado                  | Carencia para considerarlo cerrado                                                                                                                                                   |
 | ---------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Usuarios, contraseña y roles                               | Parcial                 | Falta resolver el acceso cuando el dispositivo está sin internet y la sesión local venció; también cerrar recuperación, revocación y política de contraseña.                         |
+| Usuarios, contraseña y roles                               | Parcial                 | El PIN offline y la revocación eventual están cubiertos técnicamente; faltan aprobación formal, recuperación y política productiva de contraseña.                                    |
 | Alta autónoma de usuarios por Administrador                | Parcial                 | Existe administración central, pero falta el ciclo de vida operativo completo: invitación/entrega segura, cambio obligatorio de contraseña, recuperación y desactivación comprobada. |
 | Inventario con código único por instrumento                | Cubierto técnicamente   | Falta validar etiquetas y lectura real después de uso, limpieza y esterilización.                                                                                                    |
 | Consumibles con QR de fábrica                              | Pendiente de validación | Debe comprobarse si el código identifica una unidad, lote o empaque; el modelo actual supone una pieza física identificable de forma única.                                          |
@@ -77,8 +77,8 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 | Precio base, habitual, otra provincia y nota de crédito    | Cubierto técnicamente   | Falta configurar y auditar la ciudad base de producción y validar los cálculos con casos reales.                                                                                     |
 | Precio excepcional con aprobación de gerencia              | Parcial                 | El rol aprobador se ha mapeado a Administrador; falta aprobación formal del negocio y prueba completa de solicitud, aprobación, rechazo y auditoría.                                 |
 | Facturación al cerrar procedimiento                        | Parcial                 | Existe el registro/emisión; falta acordar si “facturación final” incluye PDF, impresión, exportación, integración contable o tributaria.                                             |
-| Funcionamiento permanente sin internet                     | Parcial/Bloqueo         | Los datos y operaciones trabajan localmente, pero un usuario sin sesión vigente no puede autenticarse por primera vez o reingresar sin conexión.                                     |
-| Sincronización y resolución de conflictos                  | Parcial/Bloqueo         | Existe el protocolo, pero falta historial remoto completo, visibilidad de fallos y prueba E2E repetible de dos dispositivos.                                                         |
+| Funcionamiento permanente sin internet                     | Cubierto técnicamente   | Un usuario previamente enrolado puede reingresar con PIN durante siete días; el primer acceso requiere conexión y falta validar la política y UX en dispositivos reales.             |
+| Sincronización y resolución de conflictos                  | Cubierto técnicamente   | El historial remoto y la visibilidad de fallos están implementados; falta la prueba E2E repetible de dos dispositivos contra una base reconstruida.                                  |
 | Uso móvil y PC                                             | Parcial                 | La interfaz es adaptable, pero falta matriz de navegadores/dispositivos, accesibilidad y aceptación real.                                                                            |
 | Lector físico QR/código de barras                          | Pendiente               | No hay evidencia de pruebas con modelos de lector objetivo ni configuración de sufijo, teclado, foco y lecturas repetidas.                                                           |
 | Supervisor y notificaciones                                | Parcial                 | Hay agregados de conflictos, maletas demoradas y facturas bloqueadas; falta definir el alcance final, frecuencia, confirmación, escalamiento e historial.                            |
@@ -132,13 +132,15 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 
 ### P0-03. Resolver la autenticación realmente sin conexión
 
-> **Estado de implementación (12 de septiembre de 2026):** en progreso. El
-> punto de transferencia incluye el núcleo criptográfico compartido, el modelo
-> Dexie v8 para PIN derivado y auditoría, y el servicio local inicial de
-> enrolamiento, bloqueo, vigencia y revocación. Todavía faltan integrar el flujo
-> con Supabase Auth, la revalidación al reconectar, la interfaz de enrolamiento
-> y desbloqueo, las pruebas específicas y la documentación final. Este bloque
-> no debe considerarse cerrado hasta completar y verificar esas piezas.
+> **Estado de implementación (12 de septiembre de 2026):** resuelto
+> técnicamente en la rama de trabajo. El dispositivo se enrola únicamente tras
+> una sesión Supabase válida; guarda un derivado PBKDF2 del PIN, limita la
+> autorización a siete días, bloquea quince minutos después de cinco intentos y
+> registra una bitácora local. La PWA permite desbloqueo offline, detiene el PUSH
+> hasta revalidar con `auth.getUser()` y el perfil central, y revoca el acceso si
+> recibe un perfil inactivo o eliminado. Los fallos transitorios de red no se
+> interpretan como revocación. Falta la aprobación formal de negocio/seguridad y
+> la validación de campo antes de cerrar el criterio productivo.
 
 **Carencia:** el acceso central usa Supabase Auth y necesita red. Una sesión local permite continuar durante un periodo limitado, pero al vencer no existe un verificador offline seguro. Un usuario legítimo puede quedar bloqueado tras varias horas sin conexión.
 
@@ -152,6 +154,17 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 - Diseñar el comportamiento de operaciones creadas por un usuario revocado antes de que el dispositivo reciba la revocación.
 
 **Criterio de cierre:** política aprobada, implementación probada tras vencimiento de sesión, reconexión segura y UX clara para revocación o credencial vencida.
+
+**Política técnica implementada:** PIN local distinto de la contraseña central,
+exactamente ocho dígitos no secuenciales ni excesivamente repetidos; derivación
+PBKDF2-SHA256 con sal individual y 310.000 iteraciones; autorización de siete
+días por usuario y dispositivo; sesiones de hasta doce horas sin superar la
+vigencia restante; cinco intentos y bloqueo de quince minutos. La ventana se
+renueva solo después de validación central. Una operación creada antes de
+conocer una revocación conserva el actor original y queda pendiente o en
+cuarentena según la decisión del servidor: nunca se reasigna silenciosamente a
+otro usuario. La evidencia puede exportarse desde el diagnóstico de sync para
+resolución administrativa.
 
 ### P0-04. Crear pruebas repetibles del escenario crítico multidispositivo
 
@@ -296,7 +309,7 @@ Se necesita firma de usuarios responsables sobre:
 - Prioridad de precio y comportamiento al cambiar hospital o provincia.
 - Vigencia de enlaces freelance.
 - Umbral y destinatarios de notificaciones.
-- Comportamiento ante usuario revocado durante una jornada offline.
+- Aprobación formal de la política técnica ya implementada para un usuario revocado durante una jornada offline.
 
 ## 6. Calidad, operación y deuda técnica
 

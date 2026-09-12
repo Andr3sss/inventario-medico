@@ -33,6 +33,7 @@ import {
 import { avanzarReloj, fusionarRelojRemoto } from './reloj.js';
 import { AZAR_CRIPTOGRAFICO, uuidV7, type FuenteAzar } from './identificadores.js';
 import { encolarOperacion, esEventoPieza } from './operaciones.js';
+import { revocarAccesoOffline } from './acceso-offline.js';
 
 export interface EventoRechazado {
   readonly eventoId?: string;
@@ -543,6 +544,8 @@ async function proyectarInbox(
           db.excepcionesPrecio,
           db.facturas,
           db.perfilesCentrales,
+          db.credencialesOffline,
+          db.auditoriaAcceso,
           db.outbox,
           db.eventosMaleta,
           db.operacionesSync,
@@ -637,7 +640,7 @@ async function proyectarCambio(
   } else if (fila.entidadTipo === 'EXCEPCION_PRECIO') {
     await proyectarExcepcion(db, fila);
   } else if (fila.entidadTipo === 'PERFIL') {
-    await proyectarPerfil(db, fila);
+    await proyectarPerfil(db, fila, opciones.ahora());
   } else if (fila.entidadTipo === 'CONFLICTO') {
     await proyectarConflicto(db, fila, opciones.ahora());
   } else if (fila.entidadTipo === 'EVENTO_DOMINIO') {
@@ -773,9 +776,10 @@ async function proyectarExcepcion(db: BaseLocal, fila: FilaInboxSync): Promise<v
   });
 }
 
-async function proyectarPerfil(db: BaseLocal, fila: FilaInboxSync): Promise<void> {
+async function proyectarPerfil(db: BaseLocal, fila: FilaInboxSync, ahora: number): Promise<void> {
   if (fila.eliminado) {
     await db.perfilesCentrales.delete(fila.entidadId);
+    await revocarAccesoOffline(db, fila.entidadId, ahora, 'PERFIL_CENTRAL_ELIMINADO');
     return;
   }
   const payload = registro(fila.payload);
@@ -788,6 +792,9 @@ async function proyectarPerfil(db: BaseLocal, fila: FilaInboxSync): Promise<void
     activo: payload.activo === true,
     validoHasta: Number.MAX_SAFE_INTEGER,
   });
+  if (payload.activo !== true) {
+    await revocarAccesoOffline(db, fila.entidadId, ahora, 'PERFIL_CENTRAL_INACTIVO');
+  }
 }
 
 async function proyectarConflicto(

@@ -67,6 +67,22 @@ VITE_ENABLE_LOCAL_DEMO=false
 No hay contraseña maestra hardcodeada. El primer administrador productivo se
 crea por invitación de Supabase Auth.
 
+### Desbloqueo offline
+
+No requiere tabla ni secreto remoto adicional. Después de un ingreso central,
+la PWA deriva y guarda un PIN únicamente en IndexedDB, ligado al usuario y al
+UUID del dispositivo. Al reconectar usa `auth.getUser()` y una lectura RLS de
+`perfiles` para renovar siete días o revocar. El registro existente en
+`dispositivo_usuarios` continúa siendo el control central y se renueva mediante
+la Edge Function `sync`; nunca se almacena el PIN en PostgreSQL ni en metadatos
+de Auth.
+
+En staging deben comprobarse al menos: sesión central vencida seguida de acceso
+offline, cinco intentos fallidos, expiración a siete días, perfil desactivado,
+token Auth de otra identidad y caída de red durante la revalidación. Los dos
+últimos casos no son equivalentes: identidad distinta cierra la sesión; caída
+de red conserva la ventana local sin renovarla.
+
 ## Matriz de pruebas
 
 Se probaron en transacciones con rollback:

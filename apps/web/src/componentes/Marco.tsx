@@ -4,9 +4,11 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { AREAS, areaDeRuta, areasDe, type Area } from '@crearcos/core';
 import { useApp } from '../datos/contexto.js';
 import { EstadoSincronizacion } from './EstadoSincronizacion.js';
+import { ConfigurarAccesoOffline } from './ConfigurarAccesoOffline.js';
 import { NotificacionesSupervisor } from './NotificacionesSupervisor.js';
 import { Icono, type NombreIcono } from './Icono.js';
 import { Avatar } from './UI.js';
+import { formatearFecha } from '../datos/presentacion.js';
 
 const ETIQUETA_ROL: Readonly<Record<string, string>> = {
   ADMINISTRADOR: 'Administrador',
@@ -63,7 +65,7 @@ function EnlaceArea({
 }
 
 export function Marco({ children }: { children: ReactNode }): ReactElement {
-  const { sesion, salir, persistente } = useApp();
+  const { persistente, revalidandoCentral, sesion, salir } = useApp();
   const [menuMovil, setMenuMovil] = useState(false);
   const ubicacion = useLocation();
   if (sesion === null) return <>{children}</>;
@@ -140,6 +142,18 @@ export function Marco({ children }: { children: ReactNode }): ReactElement {
             <span>Almacenamiento temporal · sincroniza antes de cerrar este dispositivo.</span>
           </div>
         )}
+        {sesion.origen === 'OFFLINE' && (
+          <div className="aviso-sesion-offline" role="status">
+            <Icono nombre="reloj" />
+            <span>
+              <strong>
+                {revalidandoCentral ? 'Revalidando identidad central' : 'Sesión offline'}
+              </strong>
+              {' · '}válida hasta {formatearFecha(sesion.expiraEn)}. Los cambios permanecerán en el
+              dispositivo hasta confirmar tu cuenta al reconectar.
+            </span>
+          </div>
+        )}
         <main className="marco__contenido">{children}</main>
       </div>
 
@@ -201,6 +215,7 @@ export function Marco({ children }: { children: ReactNode }): ReactElement {
           </div>
         </div>
       )}
+      <ConfigurarAccesoOffline />
     </div>
   );
 }

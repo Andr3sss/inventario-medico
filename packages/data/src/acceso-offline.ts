@@ -1,10 +1,6 @@
 import { fallo, ok, usuarioId as crearUsuarioId, type Resultado, type Rol } from '@crearcos/core';
-import {
-  VIGENCIA_SESION_MS,
-  type ErrorAuth,
-  type OpcionesAuth,
-  type SesionActiva,
-} from './autenticacion.js';
+import type { ErrorAuth, OpcionesAuth, SesionActiva } from './autenticacion.js';
+import { VIGENCIA_SESION_MS } from './configuracion-auth.js';
 import type {
   AccionAuditoriaAcceso,
   BaseLocal,
@@ -21,6 +17,8 @@ export const BLOQUEO_PIN_MS = 15 * 60 * 1000;
 export const VIGENCIA_ACCESO_OFFLINE_MS = 7 * 24 * 60 * 60 * 1000;
 const INTERVALO_AUDITORIA_REVALIDACION_MS = 24 * 60 * 60 * 1000;
 const PIN_VALIDO = /^\d{8}$/;
+const SECUENCIA_ASCENDENTE = '012345678901234567';
+const SECUENCIA_DESCENDENTE = '987654321098765432';
 
 export type EstadoAccesoOffline = 'DISPONIBLE' | 'BLOQUEADO' | 'EXPIRADO' | 'REVOCADO';
 
@@ -68,17 +66,23 @@ export async function configurarAccesoOffline(
   pin: string,
   opciones: OpcionesAccesoOffline,
 ): Promise<Resultado<ResumenAccesoOffline, ErrorAuth>> {
-  if (sesion.origen !== 'CENTRAL' || sesion.identificador === undefined) {
+  const ahora = opciones.ahora();
+  if (
+    sesion.origen !== 'CENTRAL' ||
+    sesion.identificador === undefined ||
+    sesion.expiraEn <= ahora
+  ) {
     return fallo(error('ACCESO_OFFLINE_NO_CONFIGURADO', 'Se requiere una sesión central reciente'));
   }
-  if (!PIN_VALIDO.test(pin)) {
-    return fallo(error('PIN_DEBIL', 'El PIN offline debe contener exactamente 8 dígitos'));
+  if (!esPinSeguro(pin)) {
+    return fallo(
+      error('PIN_DEBIL', 'Usa 8 dígitos y evita secuencias o números demasiado repetidos'),
+    );
   }
   const perfil = await db.perfilesCentrales.get(sesion.usuarioId);
   if (!perfilValido(perfil, sesion)) {
     return fallo(error('USUARIO_INACTIVO', 'El perfil central no está habilitado'));
   }
-  const ahora = opciones.ahora();
   const sal = generarSal();
   const iteraciones = opciones.iteraciones ?? ITERACIONES_PIN_OFFLINE;
   const fila: FilaCredencialOffline = {
@@ -229,6 +233,7 @@ export async function renovarAccesoOffline(
   ahora: number,
   forzarAuditoria = false,
 ): Promise<boolean> {
+  if (sesion.origen !== 'CENTRAL' || sesion.expiraEn <= ahora) return false;
   const fila = await db.credencialesOffline.get(sesion.usuarioId);
   const perfil = await db.perfilesCentrales.get(sesion.usuarioId);
   if (
@@ -303,6 +308,66 @@ export async function hayAccesoOfflineVigente(
   );
 }
 
+/** Revalida una sesión offline sin aceptar datos de perfil procedentes del cliente. */
+export async function consolidarRevalidacionCentral(
+  db: BaseLocal,
+  sesion: SesionActiva,
+  perfil: {
+    readonly usuarioId: string;
+    readonly nombre: string;
+    readonly rol: Exclude<Rol, 'SISTEMA'>;
+  },
+  ahora: number,
+): Promise<SesionActiva> {
+  if (perfil.usuarioId !== sesion.usuarioId) throw new Error('REVALIDACION_IDENTIDAD_NO_COINCIDE');
+  const actualizada: SesionActiva = {
+    ...sesion,
+    nombre: perfil.nombre,
+    rol: perfil.rol,
+    expiraEn: ahora + VIGENCIA_SESION_MS,
+    origen: 'CENTRAL',
+  };
+  await db.transaction('rw', [db.perfilesCentrales, db.meta], async () => {
+    await db.perfilesCentrales.put({
+      usuarioId: perfil.usuarioId,
+      nombre: perfil.nombre,
+      rol: perfil.rol,
+      activo: true,
+      validoHasta: ahora + VIGENCIA_ACCESO_OFFLINE_MS,
+    });
+    await db.meta.put({ clave: CLAVE_SESION, valor: actualizada });
+  });
+  await renovarAccesoOffline(db, actualizada, ahora, true);
+  return actualizada;
+}
+
+/** Comprueba la autorización local adicional de una sesión abierta mediante PIN. */
+export async function validarSesionOfflineGuardada(
+  db: BaseLocal,
+  sesion: SesionActiva,
+  ahora: number,
+): Promise<ErrorAuth | null> {
+  if (sesion.origen !== 'OFFLINE') return null;
+  const fila = await db.credencialesOffline.get(sesion.usuarioId);
+  if (fila === undefined || fila.dispositivoId !== sesion.dispositivoId) {
+    return error('ACCESO_OFFLINE_NO_CONFIGURADO', 'El acceso offline ya no está disponible');
+  }
+  if (fila.revocadaEn !== null) {
+    return error('CREDENCIAL_OFFLINE_REVOCADA', 'El acceso offline fue revocado');
+  }
+  if (fila.validaHasta <= ahora) {
+    return error(
+      'CREDENCIAL_OFFLINE_EXPIRADA',
+      'El acceso offline venció; conecta el dispositivo e ingresa con tu contraseña',
+    );
+  }
+  const perfil = await db.perfilesCentrales.get(fila.usuarioId);
+  if (perfil === undefined || !perfil.activo || perfil.rol !== fila.rol) {
+    return error('CREDENCIAL_OFFLINE_REVOCADA', 'El perfil local ya no está autorizado');
+  }
+  return null;
+}
+
 export async function listarAuditoriaAcceso(
   db: BaseLocal,
   usuarioId?: string,
@@ -347,6 +412,15 @@ function aResumen(fila: FilaCredencialOffline, ahora: number): ResumenAccesoOffl
 
 function normalizarIdentificador(valor: string): string {
   return valor.trim().toLocaleLowerCase('en-US');
+}
+
+function esPinSeguro(pin: string): boolean {
+  return (
+    PIN_VALIDO.test(pin) &&
+    new Set(pin).size >= 4 &&
+    !SECUENCIA_ASCENDENTE.includes(pin) &&
+    !SECUENCIA_DESCENDENTE.includes(pin)
+  );
 }
 
 function error(codigo: ErrorAuth['codigo'], mensaje: string): ErrorAuth {
