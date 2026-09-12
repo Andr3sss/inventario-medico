@@ -4,6 +4,7 @@ import { AREAS, areaInicial, puedeAcceder, type Area as NombreArea } from '@crea
 import { useApp } from './datos/contexto.js';
 import { Marco } from './componentes/Marco.js';
 import { Ingreso } from './pantallas/Ingreso.js';
+import { AccesoFreelance } from './pantallas/AccesoFreelance.js';
 import { Area } from './pantallas/Area.js';
 import { SinAcceso } from './pantallas/SinAcceso.js';
 
@@ -49,6 +50,7 @@ export function App(): ReactElement {
   return (
     <Routes>
       <Route path="/ingreso" element={<Ingreso />} />
+      <Route path="/acceso-freelance/:token" element={<AccesoFreelance />} />
       {(Object.keys(AREAS) as NombreArea[]).map((area) => (
         <Route key={area} path={AREAS[area].ruta} element={<Protegida area={area} />} />
       ))}

@@ -4,6 +4,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { AREAS, areaDeRuta, areasDe, type Area } from '@crearcos/core';
 import { useApp } from '../datos/contexto.js';
 import { EstadoSincronizacion } from './EstadoSincronizacion.js';
+import { NotificacionesSupervisor } from './NotificacionesSupervisor.js';
 import { Icono, type NombreIcono } from './Icono.js';
 import { Avatar } from './UI.js';
 
@@ -25,6 +26,7 @@ const ICONOS_AREA: Readonly<Record<Area, NombreIcono>> = {
   conflictos: 'conflicto',
   facturacion: 'factura',
   usuarios: 'usuarios',
+  hospitales: 'hospital',
 };
 
 function Logo(): ReactElement {
@@ -122,10 +124,7 @@ export function Marco({ children }: { children: ReactNode }): ReactElement {
               <span>Buscar en el sistema</span>
               <kbd>⌘ K</kbd>
             </button>
-            <button type="button" className="boton-icono" aria-label="Notificaciones">
-              <Icono nombre="campana" />
-              <span className="boton-icono__aviso" />
-            </button>
+            {sesion.rol === 'SUPERVISOR' && <NotificacionesSupervisor />}
             <span className="topbar__avatar">
               <Avatar nombre={sesion.nombre} pequeno />
             </span>

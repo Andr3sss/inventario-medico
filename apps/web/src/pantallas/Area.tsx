@@ -8,11 +8,14 @@ import { Reprocesamiento } from './Reprocesamiento.js';
 import { Conflictos } from './Conflictos.js';
 import { Facturacion } from './Facturacion.js';
 import { Usuarios } from './Usuarios.js';
+import { Hospitales } from './Hospitales.js';
 
 export function Area({ area }: { area: NombreArea }): ReactElement {
   switch (area) {
     case 'tablero':
       return <Tablero />;
+    case 'hospitales':
+      return <Hospitales />;
     case 'inventario':
       return <Inventario />;
     case 'maletas':

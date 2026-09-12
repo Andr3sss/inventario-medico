@@ -925,6 +925,120 @@ kbd {
   font-size: 0.82rem;
 }
 
+.skeleton-lista {
+  padding: 4px 14px;
+}
+.skeleton-fila {
+  display: grid;
+  min-height: 66px;
+  grid-template-columns: 36px 1fr 90px;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--tinta-100);
+}
+.skeleton-fila > span,
+.skeleton-fila i {
+  display: block;
+  overflow: hidden;
+  background: var(--tinta-100);
+  border-radius: 6px;
+}
+.skeleton-fila > span {
+  width: 34px;
+  height: 34px;
+}
+.skeleton-fila > div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.skeleton-fila > div i:first-child {
+  width: min(260px, 70%);
+  height: 10px;
+}
+.skeleton-fila > div i:last-child {
+  width: min(180px, 45%);
+  height: 8px;
+}
+.skeleton-fila > i {
+  width: 88px;
+  height: 22px;
+}
+.skeleton-fila > span,
+.skeleton-fila i {
+  background-image: linear-gradient(90deg, var(--tinta-100), var(--tinta-50), var(--tinta-100));
+  background-size: 220% 100%;
+  animation: skeleton 1.35s ease-in-out infinite;
+}
+@keyframes skeleton {
+  to {
+    background-position: -220% 0;
+  }
+}
+.mensaje-estado {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 11px 13px;
+  color: var(--azul-700);
+  background: var(--azul-50);
+  border: 1px solid var(--azul-100);
+  border-radius: 8px;
+}
+.mensaje-estado > span {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+}
+.mensaje-estado > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.mensaje-estado strong {
+  font-size: 0.76rem;
+}
+.mensaje-estado p {
+  color: var(--tinta-600);
+  font-size: 0.69rem;
+}
+.mensaje-estado--exito {
+  color: var(--verde-700);
+  background: var(--verde-50);
+  border-color: var(--verde-100);
+}
+.mensaje-estado--error {
+  color: var(--rojo-700);
+  background: var(--rojo-50);
+  border-color: var(--rojo-100);
+}
+.texto-ayuda {
+  color: var(--tinta-500);
+  font-size: 0.76rem;
+}
+.campo-ui small {
+  color: var(--tinta-400);
+  font-weight: 400;
+}
+.aviso-inline--peligro {
+  color: var(--rojo-700);
+  background: var(--rojo-50);
+  border-color: var(--rojo-100);
+}
+.paginacion__pagina {
+  display: inline-flex;
+  min-width: 98px;
+  align-items: center;
+  justify-content: center;
+  color: var(--tinta-600);
+  font-size: 0.69rem;
+}
+
 /* Forms */
 .campo-ui {
   display: flex;

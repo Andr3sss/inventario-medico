@@ -120,3 +120,45 @@ export function BarraBusqueda({
     </label>
   );
 }
+
+export function CargandoPanel({ filas = 5 }: { readonly filas?: number }): ReactElement {
+  return (
+    <div className="skeleton-lista" role="status" aria-label="Cargando contenido">
+      {Array.from({ length: filas }, (_, indice) => (
+        <div className="skeleton-fila" key={indice}>
+          <span />
+          <div>
+            <i />
+            <i />
+          </div>
+          <i />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function MensajeEstado({
+  tipo,
+  titulo,
+  texto,
+}: {
+  readonly tipo: 'exito' | 'error' | 'info';
+  readonly titulo: string;
+  readonly texto?: string;
+}): ReactElement {
+  return (
+    <div
+      className={`mensaje-estado mensaje-estado--${tipo}`}
+      role={tipo === 'error' ? 'alert' : 'status'}
+    >
+      <span>
+        <Icono nombre={tipo === 'exito' ? 'check' : tipo === 'error' ? 'alerta' : 'nube'} />
+      </span>
+      <div>
+        <strong>{titulo}</strong>
+        {texto !== undefined && <p>{texto}</p>}
+      </div>
+    </div>
+  );
+}

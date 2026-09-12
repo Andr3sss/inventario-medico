@@ -1,63 +1,69 @@
 import { useRef, useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
+import type { CodigoResultadoEscaneo } from '@crearcos/data';
 import { Icono } from './Icono.js';
 
-type TipoResultado = 'correcto' | 'duplicado' | 'conflicto' | 'no-encontrado';
+export interface ResultadoVisualEscaneo {
+  readonly codigo: CodigoResultadoEscaneo | 'FALLO' | 'KIT';
+  readonly titulo: string;
+  readonly detalle: string;
+}
 
-const RESULTADOS: Readonly<
-  Record<TipoResultado, { readonly titulo: string; readonly texto: string }>
-> = {
-  correcto: { titulo: 'Instrumento agregado', texto: 'INS-002416 · Separador Farabeuf par' },
-  duplicado: {
-    titulo: 'Este instrumento ya está registrado',
-    texto: 'INS-002294 · No se realizaron cambios',
-  },
-  conflicto: {
-    titulo: 'Instrumento asignado a otra operación',
-    texto: 'INS-002381 · Maleta MQ-2046',
-  },
-  'no-encontrado': {
-    titulo: 'Código no registrado',
-    texto: 'Verifica la etiqueta o registra la pieza',
-  },
-};
+function claseResultado(codigo: ResultadoVisualEscaneo['codigo']): string {
+  if (codigo === 'EXITO') return 'correcto';
+  if (codigo === 'KIT') return 'kit';
+  if (codigo === 'REBOTE_IGNORADO') return 'duplicado';
+  if (codigo === 'PIEZA_NO_ENCONTRADA') return 'no-encontrado';
+  return 'conflicto';
+}
 
 export function Escaner({
   titulo = 'Escanear instrumento',
   ayuda = 'El lector está listo. Escanea la etiqueta para continuar.',
   compacto = false,
+  resultado,
+  procesando,
+  onEscanear,
+  onLimpiarResultado,
 }: {
   readonly titulo?: string;
   readonly ayuda?: string;
   readonly compacto?: boolean;
+  readonly resultado: ResultadoVisualEscaneo | null;
+  readonly procesando: boolean;
+  readonly onEscanear: (codigo: string) => Promise<void>;
+  readonly onLimpiarResultado: () => void;
 }): ReactElement {
   const [codigo, setCodigo] = useState('');
-  const [resultado, setResultado] = useState<TipoResultado | null>(null);
   const entrada = useRef<HTMLInputElement>(null);
+  const clase = resultado === null ? '' : ` escaner--${claseResultado(resultado.codigo)}`;
 
-  const enviar = (evento: FormEvent): void => {
+  const enviar = async (evento: FormEvent): Promise<void> => {
     evento.preventDefault();
     const normalizado = codigo.trim().toLocaleUpperCase();
-    if (normalizado === '') return;
-    if (normalizado.endsWith('381')) setResultado('conflicto');
-    else if (normalizado.endsWith('294')) setResultado('duplicado');
-    else if (normalizado.startsWith('X')) setResultado('no-encontrado');
-    else setResultado('correcto');
+    if (normalizado === '' || procesando) return;
+    await onEscanear(normalizado);
     setCodigo('');
     entrada.current?.focus();
   };
 
   return (
     <section
-      className={`escaner${compacto ? ' escaner--compacto' : ''}${resultado === null ? '' : ` escaner--${resultado}`}`}
+      className={`escaner${compacto ? ' escaner--compacto' : ''}${clase}${procesando ? ' escaner--procesando' : ''}`}
       onClick={() => entrada.current?.focus()}
     >
-      <form onSubmit={enviar}>
+      <form
+        onSubmit={(evento) => {
+          void enviar(evento);
+        }}
+      >
         <span className="escaner__icono">
           <Icono nombre="scanner" tamano={compacto ? 25 : 31} />
         </span>
         <div className="escaner__texto">
-          <p className="sobrelinea">Lector activo</p>
+          <p className="sobrelinea">
+            {procesando ? 'Guardando en este dispositivo' : 'Lector activo'}
+          </p>
           <h2>{titulo}</h2>
           <p>{ayuda}</p>
         </div>
@@ -66,11 +72,10 @@ export function Escaner({
           <input
             ref={entrada}
             autoFocus
+            disabled={procesando}
             value={codigo}
-            onChange={(evento) => {
-              setCodigo(evento.target.value);
-            }}
-            placeholder="Esperando código…"
+            onChange={(evento) => { setCodigo(evento.target.value); }}
+            placeholder={procesando ? 'Confirmando…' : 'Esperando código…'}
           />
           <span className="escaner__pulso" />
         </label>
@@ -80,17 +85,19 @@ export function Escaner({
           <span className="resultado-escaneo__icono">
             <Icono
               nombre={
-                resultado === 'correcto'
+                resultado.codigo === 'EXITO'
                   ? 'check'
-                  : resultado === 'no-encontrado'
-                    ? 'cerrar'
-                    : 'alerta'
+                  : resultado.codigo === 'KIT'
+                    ? 'caja'
+                    : resultado.codigo === 'PIEZA_NO_ENCONTRADA'
+                      ? 'cerrar'
+                      : 'alerta'
               }
             />
           </span>
           <span>
-            <strong>{RESULTADOS[resultado].titulo}</strong>
-            <small>{RESULTADOS[resultado].texto}</small>
+            <strong>{resultado.titulo}</strong>
+            <small>{resultado.detalle}</small>
           </span>
           <button
             type="button"
@@ -98,7 +105,7 @@ export function Escaner({
             aria-label="Cerrar aviso"
             onClick={(evento) => {
               evento.stopPropagation();
-              setResultado(null);
+              onLimpiarResultado();
             }}
           >
             <Icono nombre="cerrar" tamano={16} />

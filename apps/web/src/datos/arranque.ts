@@ -1,13 +1,10 @@
-import { BaseLocal, asegurarPersistencia, registrarUsuario } from '@crearcos/data';
+import {
+  BaseLocal,
+  asegurarPersistencia,
+  definirCiudadBase,
+  registrarUsuario,
+} from '@crearcos/data';
 import { generarSemilla } from '@crearcos/seeds';
-
-/**
- * Clave unica de los usuarios de demostracion.
- *
- * Existe solo mientras el prototipo no tiene servidor. Cuando entre la
- * autenticacion real, esta constante y el sembrado de usuarios desaparecen.
- */
-export const CLAVE_DEMO = 'crearcos-2026';
 
 export interface Arranque {
   readonly db: BaseLocal;
@@ -16,40 +13,69 @@ export interface Arranque {
   readonly sembrado: boolean;
 }
 
+export interface OpcionesArranque {
+  /** Escape de desarrollo. En produccion debe permanecer false. */
+  readonly habilitarDemoLocal?: boolean;
+  /** Credencial efimera suministrada por entorno; nunca se compila por defecto. */
+  readonly contrasenaDemoLocal?: string;
+}
+
 /**
  * Deja el dispositivo listo para trabajar.
  *
- * Se siembra una sola vez, cuando la base esta vacia. Reabrir la app nunca pisa
- * lo que el auxiliar ya escaneo.
+ * El sembrado de usuarios/catalogo/piezas ocurre una sola vez, cuando la base
+ * esta vacia: reabrir la app nunca pisa lo que el auxiliar ya escaneo.
+ *
+ * El sembrado de hospitales (y la ciudad base para el motor de precios) tiene
+ * su propia guarda, independiente de la de usuarios. Un dispositivo que ya
+ * corria una version anterior de la app -sin `hospitales`, sin `Maleta`- ya
+ * tiene usuarios sembrados y se saltaria el bloque de arriba; sin esta guarda
+ * separada llegaria a la pantalla de cierre de maleta con la lista de
+ * hospitales vacia, sin forma de elegir institucion.
  */
-export async function prepararDispositivo(ahora: () => number): Promise<Arranque> {
+export async function prepararDispositivo(
+  ahora: () => number,
+  opciones: OpcionesArranque = {},
+): Promise<Arranque> {
   const db = new BaseLocal();
   await db.open();
   const persistente = await asegurarPersistencia();
-
-  if ((await db.usuarios.count()) > 0) {
+  if (opciones.habilitarDemoLocal !== true) {
     return { db, persistente, sembrado: false };
   }
 
-  const semilla = generarSemilla();
-  await db.catalogo.bulkPut([...semilla.catalogo]);
-  await db.piezas.bulkPut([...semilla.piezas]);
+  const contrasenaDemo = opciones.contrasenaDemoLocal?.trim();
+  if (contrasenaDemo === undefined || contrasenaDemo.length < 8) {
+    throw new Error('VITE_LOCAL_DEMO_PASSWORD debe tener al menos 8 caracteres');
+  }
 
-  for (const usuario of semilla.usuarios) {
-    await registrarUsuario(
-      db,
-      {
-        usuarioId: usuario.id,
-        nombre: usuario.nombre,
-        rol: usuario.rol,
-        contrasena: CLAVE_DEMO,
-      },
-      { ahora },
-    );
-    if (!usuario.activo) {
-      await db.usuarios.update(usuario.id, { activo: false });
+  const semilla = generarSemilla();
+  const sinUsuarios = (await db.usuarios.count()) === 0;
+  if (sinUsuarios) {
+    await db.catalogo.bulkPut([...semilla.catalogo]);
+    await db.piezas.bulkPut([...semilla.piezas]);
+
+    for (const usuario of semilla.usuarios) {
+      await registrarUsuario(
+        db,
+        {
+          usuarioId: usuario.id,
+          nombre: usuario.nombre,
+          rol: usuario.rol,
+          contrasena: contrasenaDemo,
+        },
+        { ahora },
+      );
+      if (!usuario.activo) {
+        await db.usuarios.update(usuario.id, { activo: false });
+      }
     }
   }
 
-  return { db, persistente, sembrado: true };
+  if ((await db.hospitales.count()) === 0) {
+    await db.hospitales.bulkPut([...semilla.hospitales]);
+    await definirCiudadBase(db, semilla.ciudadBase);
+  }
+
+  return { db, persistente, sembrado: sinUsuarios };
 }

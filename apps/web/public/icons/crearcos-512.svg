@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Crearcos">
+  <rect width="512" height="512" rx="112" fill="#10332f"/>
+  <path d="M139 179h234a32 32 0 0 1 32 32v170a32 32 0 0 1-32 32H139a32 32 0 0 1-32-32V211a32 32 0 0 1 32-32Z" fill="#f0f8f5"/>
+  <path d="M195 179v-35a35 35 0 0 1 35-35h52a35 35 0 0 1 35 35v35" fill="none" stroke="#f0f8f5" stroke-width="27" stroke-linecap="round"/>
+  <path d="M107 256h298" fill="none" stroke="#267266" stroke-width="21"/>
+  <rect x="224" y="229" width="64" height="64" rx="13" fill="#16443d"/>
+  <path d="M256 240v42M235 261h42" fill="none" stroke="#fff" stroke-width="13" stroke-linecap="round"/>
+</svg>

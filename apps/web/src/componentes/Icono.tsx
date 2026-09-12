@@ -30,7 +30,9 @@ export type NombreIcono =
   | 'ojo'
   | 'flechaDerecha'
   | 'pausa'
-  | 'wifi';
+  | 'wifi'
+  | 'enlace'
+  | 'copiar';
 
 interface Propiedades extends SVGProps<SVGSVGElement> {
   readonly nombre: NombreIcono;
@@ -207,6 +209,20 @@ export function Icono({ nombre, tamano = 18, ...propiedades }: Propiedades): Rea
           <>
             <path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" />
             <path d="M12 20h.01" />
+          </>
+        );
+      case 'enlace':
+        return (
+          <>
+            <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+            <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
+          </>
+        );
+      case 'copiar':
+        return (
+          <>
+            <rect x="8" y="8" width="12" height="12" rx="2" />
+            <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
           </>
         );
     }

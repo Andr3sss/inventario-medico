@@ -3,11 +3,10 @@ import type { ReactElement } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AREAS, areaInicial } from '@crearcos/core';
 import { useApp } from '../datos/contexto.js';
-import { CLAVE_DEMO } from '../datos/arranque.js';
 import { EtiquetaBandeja } from '../componentes/EtiquetaBandeja.js';
 
 export function Ingreso(): ReactElement {
-  const { entrar, sesion, persistente } = useApp();
+  const { entrar, sesion, persistente, centralConfigurado, modoDemoLocal } = useApp();
   const [usuario, setUsuario] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +40,8 @@ export function Ingreso(): ReactElement {
           identificador="INVENTARIO QX"
           campos={[
             { nombre: 'Cliente', valor: 'Crearcos' },
-            { nombre: 'Version', valor: 'prototipo 0.1' },
+            { nombre: 'Version', valor: '0.1' },
+            { nombre: 'Datos', valor: centralConfigurado ? 'Supabase + replica local' : 'local' },
             { nombre: 'Almacenamiento', valor: persistente ? 'garantizado' : 'sin garantia' },
           ]}
         />
@@ -55,7 +55,9 @@ export function Ingreso(): ReactElement {
         <div className="ingreso__caja">
           <h1 className="ingreso__titulo">Entrar</h1>
           <p className="ingreso__ayuda">
-            Usa la cuenta que te dio el Administrador. Funciona sin conexion.
+            {centralConfigurado
+              ? 'Usa el correo y la clave que te dio el Administrador. Una sesion ya validada puede continuar sin conexion.'
+              : 'Usa la cuenta local habilitada para desarrollo.'}
           </p>
 
           <form
@@ -65,7 +67,7 @@ export function Ingreso(): ReactElement {
             }}
           >
             <label className="campo">
-              <span className="campo__etiqueta">Usuario</span>
+              <span className="campo__etiqueta">{centralConfigurado ? 'Correo' : 'Usuario'}</span>
               <input
                 className="campo__control"
                 name="usuario"
@@ -104,12 +106,15 @@ export function Ingreso(): ReactElement {
             </p>
           )}
 
-          <div className="aviso aviso--neutro">
-            <p>
-              Prototipo sin servidor. Cuentas de prueba: u-admin, u-aux-1, u-coord, u-contable,
-              u-supervisor, u-free-1. La clave de todas es {CLAVE_DEMO}.
-            </p>
-          </div>
+          {!centralConfigurado && (
+            <div className="aviso aviso--neutro">
+              <p>
+                {modoDemoLocal
+                  ? 'Modo demo local habilitado expresamente para desarrollo.'
+                  : 'Falta configurar la conexion central de Supabase.'}
+              </p>
+            </div>
+          )}
         </div>
       </section>
     </div>

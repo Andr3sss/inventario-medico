@@ -1,0 +1,42 @@
+{
+  "id": "/",
+  "name": "Crearcos Inventario Quirúrgico",
+  "short_name": "Crearcos",
+  "description": "Gestión local y trazable de inventario médico quirúrgico.",
+  "lang": "es-EC",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#10332f",
+  "background_color": "#f7f9f8",
+  "categories": ["business", "medical", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/crearcos-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/crearcos-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Inventario",
+      "short_name": "Inventario",
+      "url": "/inventario",
+      "icons": [{ "src": "/icons/crearcos-192.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Maletas quirúrgicas",
+      "short_name": "Maletas",
+      "url": "/maletas",
+      "icons": [{ "src": "/icons/crearcos-192.svg", "sizes": "192x192" }]
+    }
+  ]
+}
