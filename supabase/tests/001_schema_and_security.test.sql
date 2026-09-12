@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
-select plan(42);
+select plan(44);
 
 select has_table('public', nombre, format('existe public.%s', nombre))
 from unnest(array[
@@ -56,6 +56,16 @@ select ok(
     )
   ) > 0,
   'el pull freelance incluye solo eventos de dominio de su maleta'
+);
+
+select ok(
+  private.puede_recibir_entidad('AUXILIAR', 'CONFLICTO'),
+  'Auxiliar recibe el estado y la resolución de conflictos para converger'
+);
+
+select ok(
+  not private.puede_recibir_entidad('AUXILIAR', 'CONFLICTO_CANDIDATO'),
+  'Auxiliar no recibe la evidencia reservada de candidatos'
 );
 
 select * from finish();

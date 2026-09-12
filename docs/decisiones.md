@@ -456,6 +456,12 @@ pero el inbox los ordena con `BigInt`. Ordenarlos lexicográficamente habría
 proyectado el commit 10 antes que el 9 y podía dejar una instantánea antigua
 como resultado final.
 
+El estado y la resolución de `CONFLICTO` sí se replican a Auxiliar: de otro
+modo solo el dispositivo que recibió la respuesta directa conocería la fila y
+la conservaría abierta después de ser resuelta. `CONFLICTO_CANDIDATO` continúa
+restringido a Administrador, Coordinadora y Supervisor; la convergencia no
+requiere exponer esa evidencia detallada al rol operativo.
+
 ## Pendiente de decidir
 
 - Tamaño óptimo del lote de sincronización (el límite defensivo actual es 200),

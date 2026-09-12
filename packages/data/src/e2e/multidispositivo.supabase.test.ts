@@ -432,8 +432,14 @@ describir('sincronizacion E2E multidispositivo con Supabase local', () => {
 
       expect((await replicaA.db.piezas.get(codigoConflicto))?.estado).toBe('FACTURADA');
       expect((await replicaB.db.piezas.get(codigoConflicto))?.estado).toBe('FACTURADA');
-      expect((await replicaA.db.facturas.get(facturaId))?.estado).toBe('EMITIDA');
-      expect((await replicaB.db.facturas.get(facturaId))?.estado).toBe('EMITIDA');
+      expect((await replicaContable.db.facturas.get(facturaId))?.estado).toBe('EMITIDA');
+      const facturaCentral = await servicio
+        .from('facturas')
+        .select('estado')
+        .eq('id', facturaId)
+        .single();
+      if (facturaCentral.error) throw new Error(facturaCentral.error.message);
+      expect(facturaCentral.data.estado).toBe('EMITIDA');
       expect(await historialDePieza(replicaA.db, codigoConflicto)).toEqual(
         await historialDePieza(replicaB.db, codigoConflicto),
       );

@@ -45,7 +45,9 @@ No deben contarse nuevamente como trabajo faltante los siguientes componentes, a
   compilación y 220 pruebas TypeScript aprobadas. Los 2 escenarios E2E con
   Supabase se ejecutan únicamente en el job de infraestructura local de CI.
 - Auditoría actual de dependencias npm sin vulnerabilidades conocidas.
-- Suite pgTAP existente con 41 aserciones aprobadas contra la base remota.
+- Suite pgTAP con 44 aserciones; 42 están aprobadas contra la base remota y las
+  2 nuevas de convergencia de conflictos se verifican en Supabase local dentro
+  de CI antes de desplegar la migración.
 
 ### 2.2 Estado actual del entorno Supabase
 
