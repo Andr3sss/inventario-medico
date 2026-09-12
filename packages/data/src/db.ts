@@ -167,6 +167,43 @@ export interface FilaPerfilCentral {
   readonly validoHasta: number;
 }
 
+/** PIN derivado y autorización acotada a una identidad y dispositivo concretos. */
+export interface FilaCredencialOffline {
+  readonly usuarioId: string;
+  readonly identificador: string;
+  readonly nombre: string;
+  readonly rol: Rol;
+  readonly dispositivoId: string;
+  readonly hash: string;
+  readonly sal: string;
+  readonly iteraciones: number;
+  readonly creadaEn: number;
+  verificadaEn: number;
+  validaHasta: number;
+  intentosFallidos: number;
+  bloqueadoHasta: number | null;
+  revocadaEn: number | null;
+  motivoRevocacion: string | null;
+}
+
+export type AccionAuditoriaAcceso =
+  | 'ENROLAMIENTO_OFFLINE'
+  | 'DESBLOQUEO_OFFLINE'
+  | 'REVALIDACION_CENTRAL'
+  | 'REVOCACION_OFFLINE'
+  | 'EXPIRACION_OFFLINE';
+
+/** Bitácora local de solo agregado para explicar cada decisión de acceso offline. */
+export interface FilaAuditoriaAcceso {
+  readonly id: string;
+  readonly usuarioId: string | null;
+  readonly dispositivoId: string;
+  readonly accion: AccionAuditoriaAcceso;
+  readonly resultado: 'OK' | 'RECHAZADO';
+  readonly ocurridoEn: number;
+  readonly detalle: string | null;
+}
+
 /**
  * Excepcion de precio con un id propio porque Dexie necesita una clave y el
  * par (sku, hospitalId) no es unico en el tiempo: la misma combinacion puede
@@ -219,6 +256,8 @@ export class BaseLocal extends Dexie {
   inboxSync!: EntityTable<FilaInboxSync, 'id'>;
   replicaCentral!: EntityTable<FilaReplicaCentral, 'clave'>;
   perfilesCentrales!: EntityTable<FilaPerfilCentral, 'usuarioId'>;
+  credencialesOffline!: EntityTable<FilaCredencialOffline, 'usuarioId'>;
+  auditoriaAcceso!: EntityTable<FilaAuditoriaAcceso, 'id'>;
 
   constructor(nombre = 'crearcos-inventario') {
     super(nombre);
@@ -344,6 +383,13 @@ export class BaseLocal extends Dexie {
             }
           });
       });
+
+    // Version 8: desbloqueo offline separado de Supabase Auth. El PIN solo se
+    // conserva como derivado y cada decisión deja una bitácora local inmutable.
+    this.version(8).stores({
+      credencialesOffline: 'usuarioId, &identificador, rol, validaHasta, revocadaEn, dispositivoId',
+      auditoriaAcceso: 'id, usuarioId, ocurridoEn, [usuarioId+ocurridoEn]',
+    });
   }
 }
 

@@ -132,6 +132,14 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 
 ### P0-03. Resolver la autenticación realmente sin conexión
 
+> **Estado de implementación (11 de septiembre de 2026):** en progreso. El
+> punto de transferencia incluye el núcleo criptográfico compartido, el modelo
+> Dexie v8 para PIN derivado y auditoría, y el servicio local inicial de
+> enrolamiento, bloqueo, vigencia y revocación. Todavía faltan integrar el flujo
+> con Supabase Auth, la revalidación al reconectar, la interfaz de enrolamiento
+> y desbloqueo, las pruebas específicas y la documentación final. Este bloque
+> no debe considerarse cerrado hasta completar y verificar esas piezas.
+
 **Carencia:** el acceso central usa Supabase Auth y necesita red. Una sesión local permite continuar durante un periodo limitado, pero al vencer no existe un verificador offline seguro. Un usuario legítimo puede quedar bloqueado tras varias horas sin conexión.
 
 **Riesgo:** incumplir el requisito de que el sistema funcione en todo momento sin internet. También existe el riesgo inverso: un usuario deshabilitado puede seguir operando localmente hasta la siguiente conexión.

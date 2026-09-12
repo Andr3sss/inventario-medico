@@ -3,6 +3,7 @@ export * from './identificadores.js';
 export * from './reloj.js';
 export * from './operaciones.js';
 export * from './autenticacion.js';
+export * from './acceso-offline.js';
 export * from './escaneo.js';
 export * from './sync.js';
 export * from './estado-sync.js';

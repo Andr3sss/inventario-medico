@@ -1,6 +1,7 @@
 import { fallo, ok, usuarioId as crearUsuarioId, type Resultado, type Rol } from '@crearcos/core';
 import { CLAVE_SESION, type BaseLocal, type FilaUsuario } from './db.js';
 import type { Sesion } from './escaneo.js';
+import { derivadosIguales, derivarSecreto, generarSal } from './criptografia.js';
 
 /**
  * Iteraciones de PBKDF2 para produccion. Las pruebas bajan este numero porque
@@ -23,6 +24,12 @@ export type CodigoErrorAuth =
   | 'ROL_NO_INICIA_SESION'
   | 'PERFIL_NO_DISPONIBLE'
   | 'SERVIDOR_NO_CONFIGURADO'
+  | 'SERVICIO_NO_DISPONIBLE'
+  | 'ACCESO_OFFLINE_NO_CONFIGURADO'
+  | 'PIN_INVALIDO'
+  | 'PIN_DEBIL'
+  | 'CREDENCIAL_OFFLINE_EXPIRADA'
+  | 'CREDENCIAL_OFFLINE_REVOCADA'
   | 'SESION_EXPIRADA'
   | 'SIN_SESION';
 
@@ -36,6 +43,9 @@ export interface ErrorAuth {
 export interface SesionActiva extends Sesion {
   readonly nombre: string;
   readonly expiraEn: number;
+  readonly origen?: 'LOCAL' | 'CENTRAL' | 'OFFLINE' | 'FREELANCE_LOCAL' | 'FREELANCE_CENTRAL';
+  /** Correo central normalizado. Solo se conserva para identificar el acceso offline. */
+  readonly identificador?: string;
   /** Credencial opaca de una sesión freelance central; nunca es un token de Auth. */
   readonly sesionFreelanceId?: string;
 }
@@ -43,58 +53,6 @@ export interface SesionActiva extends Sesion {
 export interface OpcionesAuth {
   readonly ahora: () => number;
   readonly iteraciones?: number;
-}
-
-/**
- * Copia el texto a un ArrayBuffer propio. WebCrypto acepta BufferSource y el
- * tipo que devuelve TextEncoder puede estar respaldado por memoria compartida,
- * que no sirve aqui.
- */
-function textoAOctetos(texto: string): ArrayBuffer {
-  const datos = new TextEncoder().encode(texto);
-  const destino = new ArrayBuffer(datos.byteLength);
-  new Uint8Array(destino).set(datos);
-  return destino;
-}
-
-const aHex = (buffer: ArrayBuffer): string =>
-  [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('');
-
-async function derivar(contrasena: string, sal: string, iteraciones: number): Promise<string> {
-  const clave = await globalThis.crypto.subtle.importKey(
-    'raw',
-    textoAOctetos(contrasena),
-    'PBKDF2',
-    false,
-    ['deriveBits'],
-  );
-  const bits = await globalThis.crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt: textoAOctetos(sal), iterations: iteraciones },
-    clave,
-    256,
-  );
-  return aHex(bits);
-}
-
-/**
- * Comparacion de tiempo constante.
- *
- * Comparar con === sale antes en el primer caracter distinto, y esa diferencia
- * de microsegundos es medible. Aqui siempre se recorren los dos hashes enteros.
- */
-function iguales(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diferencia = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diferencia |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diferencia === 0;
-}
-
-function salAleatoria(): string {
-  const bytes = new Uint8Array(16);
-  globalThis.crypto.getRandomValues(bytes);
-  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export interface DatosUsuarioNuevo {
@@ -122,13 +80,13 @@ export async function registrarUsuario(
   }
 
   const iteraciones = opciones.iteraciones ?? ITERACIONES;
-  const sal = salAleatoria();
+  const sal = generarSal();
   const fila: FilaUsuario = {
     usuarioId: datos.usuarioId,
     nombre: datos.nombre,
     rol: datos.rol,
     activo: true,
-    hash: await derivar(datos.contrasena, sal, iteraciones),
+    hash: await derivarSecreto(datos.contrasena, sal, iteraciones),
     sal,
     iteraciones,
     intentosFallidos: 0,
@@ -156,7 +114,7 @@ export async function iniciarSesion(
   if (fila === undefined) {
     // Se deriva igual con parametros de descarte para no delatar por tiempo que
     // el usuario no existe.
-    await derivar(contrasena, 'inexistente', opciones.iteraciones ?? ITERACIONES);
+    await derivarSecreto(contrasena, 'inexistente', opciones.iteraciones ?? ITERACIONES);
     return fallo({
       codigo: 'CREDENCIALES_INVALIDAS',
       mensaje: 'Usuario o contrasena incorrectos',
@@ -164,8 +122,8 @@ export async function iniciarSesion(
     });
   }
 
-  const derivado = await derivar(contrasena, fila.sal, fila.iteraciones);
-  const coincide = iguales(derivado, fila.hash);
+  const derivado = await derivarSecreto(contrasena, fila.sal, fila.iteraciones);
+  const coincide = derivadosIguales(derivado, fila.hash);
 
   if (fila.bloqueadoHasta !== null && fila.bloqueadoHasta > ahora) {
     return fallo({
@@ -203,6 +161,7 @@ export async function iniciarSesion(
     rol: fila.rol,
     dispositivoId: await idDispositivo(db),
     expiraEn: ahora + vigencia,
+    origen: 'LOCAL',
   };
 
   await db.transaction('rw', [db.usuarios, db.meta], async () => {
