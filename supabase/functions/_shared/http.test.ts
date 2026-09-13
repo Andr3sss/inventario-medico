@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   corsHeaders,
   leerOrigenesPermitidos,
@@ -7,6 +7,10 @@ import {
 } from './http.js';
 
 describe('CORS estricto para Edge Functions', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('acepta origenes HTTPS exactos y elimina duplicados', () => {
     expect(
       leerOrigenesPermitidos('https://app.crearcos.example, https://app.crearcos.example'),
@@ -51,6 +55,24 @@ describe('CORS estricto para Edge Functions', () => {
     expect(respuesta.status).toBe(204);
     expect(respuesta.headers.get('access-control-allow-origin')).toBe(
       'https://app.crearcos.example',
+    );
+  });
+
+  it('lee ALLOWED_ORIGINS del runtime Deno cuando no se inyecta un argumento', () => {
+    vi.stubGlobal('Deno', {
+      env: {
+        get: (nombre: string) =>
+          nombre === 'ALLOWED_ORIGINS' ? 'https://staging.crearcos.example' : undefined,
+      },
+    });
+    const req = new Request('https://funcion.example', {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://staging.crearcos.example' },
+    });
+    const respuesta = responderPreflight(req);
+    expect(respuesta.status).toBe(204);
+    expect(respuesta.headers.get('access-control-allow-origin')).toBe(
+      'https://staging.crearcos.example',
     );
   });
 });

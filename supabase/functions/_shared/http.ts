@@ -28,10 +28,16 @@ function origenExacto(valor: string): string | null {
 }
 
 export function leerOrigenesPermitidos(configuracion?: string): readonly string[] {
+  const deno = (
+    globalThis as typeof globalThis & {
+      readonly Deno?: { readonly env: { readonly get: (nombre: string) => string | undefined } };
+    }
+  ).Deno;
+  const configuracionEfectiva = configuracion ?? deno?.env.get('ALLOWED_ORIGINS');
   const valores =
-    configuracion === undefined || configuracion.trim() === ''
+    configuracionEfectiva === undefined || configuracionEfectiva.trim() === ''
       ? ORIGENES_LOCALES
-      : configuracion.split(',').map((valor) => valor.trim());
+      : configuracionEfectiva.split(',').map((valor) => valor.trim());
   const origenes = valores.filter(Boolean).map(origenExacto);
   if (origenes.length === 0 || origenes.some((origen) => origen === null)) {
     throw new Error('ALLOWED_ORIGINS_INVALIDO');
