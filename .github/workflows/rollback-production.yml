@@ -1,0 +1,62 @@
+name: Revertir frontend de produccion
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: ID de un despliegue productivo anterior y exitoso
+        required: true
+        type: string
+      confirmation:
+        description: Escriba REVERTIR-PRODUCCION
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      CREARCOS_DEPLOY_ENV: production
+      PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_ENABLE_LOCAL_DEMO: 'false'
+      VITE_LOCAL_DEMO_PASSWORD: ''
+      AUTH_REDIRECT_URL: ${{ vars.AUTH_REDIRECT_URL }}
+      ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Exigir confirmacion literal
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: test "$CONFIRMATION" = 'REVERTIR-PRODUCCION'
+      - name: Revertir al despliegue indicado
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+        run: |
+          [[ "$DEPLOYMENT_ID" =~ ^[0-9a-fA-F-]{36}$ ]]
+          curl --fail-with-body --silent --show-error --request POST \
+            --url "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/pages/projects/$CLOUDFLARE_PAGES_PROJECT/deployments/$DEPLOYMENT_ID/rollback" \
+            --header "Authorization: Bearer $CF_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data '{}'
+      - name: Smoke posterior al rollback
+        env:
+          SMOKE_BASE_URL: ${{ vars.PUBLIC_APP_URL }}
+        run: npm run deployment:smoke

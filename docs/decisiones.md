@@ -511,6 +511,23 @@ dispositivo deshabilita atómicamente el equipo y todos sus vínculos. Esta dobl
 revocación es necesaria porque un access token emitido puede sobrevivir hasta
 su expiración, aunque ya no deba autorizar ninguna operación de negocio.
 
+## 45. La promoción usa el mismo commit y entornos aislados
+
+Desarrollo usa Supabase local; staging y producción usan proyectos Supabase
+distintos y GitHub Environments con credenciales independientes. El frontend se
+publica por Direct Upload en Cloudflare Pages: `staging` es una rama preview y
+`main` la rama productiva. Los hosts se validan como orígenes HTTPS exactos.
+
+Una etiqueta no basta para promover. Debe coincidir con la versión de
+`package.json` y GitHub debe registrar un deployment exitoso del mismo SHA en
+staging. Producción repite pruebas y migraciones controladas y queda sujeta a
+revisores. Así no se recompila o despliega código diferente del aceptado en UAT.
+
+La base no tiene rollback automático: después de una migración se corrige hacia
+adelante o se activa el procedimiento de restauración con corte y conciliación.
+El rollback automatizado de Pages sólo cambia el frontend y ejecuta smoke para
+detectar una combinación incompatible.
+
 ## Pendiente de decidir
 
 - Tamaño óptimo del lote de sincronización (el límite defensivo actual es 200),

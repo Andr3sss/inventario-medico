@@ -12,6 +12,9 @@ seeds/salida/
 # Entorno local
 .env
 .env.local
+.env.*
+!.env.example
+!.env.*.example
 
 # Sistema operativo
 .DS_Store

@@ -1,6 +1,6 @@
 # Informe de carencias y trabajo pendiente para finalizar Crearcos Inventario
 
-**Fecha de corte:** 12 de septiembre de 2026
+**Fecha de corte:** 13 de septiembre de 2026
 **Fuente principal de requisitos:** `inventario.md`  
 **Alcance de la revisión:** aplicación web/PWA, lógica de dominio, persistencia local, sincronización, PostgreSQL/Supabase, Edge Functions, seguridad, pruebas, operación y preparación para producción.
 
@@ -279,6 +279,21 @@ resolución administrativa.
 
 **Criterio de cierre:** una versión etiquetada se despliega primero en staging, supera smoke/UAT y puede promoverse o revertirse de forma documentada.
 
+**Avance al 13 de septiembre de 2026:** la preparación técnica del repositorio
+está completa. Los flujos exigen GitHub Environments separados, validación estricta de
+variables, migración remota precedida por base desechable y `--dry-run`,
+despliegue de Edge y Cloudflare Pages, artefacto retenido, smoke positivo y
+negativo, promoción por etiqueta del mismo SHA y rollback de frontend. El
+artefacto genera CSP y cabeceras de seguridad, diferencia caché inmutable de
+assets y `no-store` para el service worker, y deriva la versión de aplicación de
+una fuente única. `docs/DEPLOYMENT_RUNBOOK.md` y `docs/RELEASE_UAT.md` documentan
+la operación.
+
+**Pendiente externo para cerrar el criterio:** crear y cargar en GitHub los dos
+proyectos Supabase reales, el proyecto Pages, hosts/DNS, secretos y revisores;
+ejecutar staging, completar UAT y conservar su evidencia. Hasta entonces P0-08
+queda técnicamente preparado, pero no debe declararse cerrado en producción.
+
 ### P0-09. Ejecutar respaldo, restauración y entrega a producción
 
 **Carencia:** Supabase sigue en `DEMO`, con el reinicio habilitado y datos de demostración. No hay evidencia de un ensayo de restauración ni de una entrega final ejecutada.
@@ -408,7 +423,7 @@ Falta comprobar instalación, actualización y recuperación de la PWA en la mat
 
 ### P2-05. Tamaño y carga del frontend
 
-La compilación termina correctamente, pero advierte que el paquete JavaScript principal ronda 780 KB sin comprimir. Conviene dividir por rutas o funcionalidades y medir carga/actualización en conexiones móviles deficientes. No es un error funcional inmediato, pero sí un riesgo de despliegue y actualización en campo.
+La compilación termina correctamente, pero advierte que el paquete JavaScript principal ronda 830 KB sin comprimir. Conviene dividir por rutas o funcionalidades y medir carga/actualización en conexiones móviles deficientes. No es un error funcional inmediato, pero sí un riesgo de despliegue y actualización en campo.
 
 ### P2-06. Interfaz incompleta o engañosa
 
@@ -420,7 +435,7 @@ La compilación termina correctamente, pero advierte que el paquete JavaScript p
 
 `docs/decisiones.md` conserva afirmaciones que ya no coinciden con el código, entre ellas que los eventos de maleta no se sincronizan, que no existe la pantalla de hospitales y descripciones antiguas del acceso freelance y credenciales locales. También existen comentarios de código que indican que la sincronización de usuarios sigue pendiente cuando ya hay administración central.
 
-Debe realizarse una revisión completa de arquitectura, decisiones, configuración, recuperación, protocolos y cifras de pruebas. La versión de aplicación que se envía en operaciones está fijada manualmente como `0.1.0`, mientras el paquete declara `0.0.1`; debe provenir de una única fuente de versión de compilación.
+Debe realizarse una revisión completa de arquitectura, decisiones, configuración, recuperación, protocolos y cifras de pruebas. La discrepancia de versión quedó resuelta en P0-08: operaciones recibe ahora la versión de `package.json` inyectada durante la compilación junto con el entorno y SHA. La revisión del resto de afirmaciones antiguas continúa pendiente.
 
 ## 7. Validación de negocio y entrega operativa
 

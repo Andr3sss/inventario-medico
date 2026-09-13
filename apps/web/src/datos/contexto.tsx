@@ -46,6 +46,7 @@ import {
   type SesionActiva,
 } from '@crearcos/data';
 import { prepararDispositivo } from './arranque.js';
+import { versionAplicacion } from './version.js';
 
 interface ValorApp {
   readonly db: BaseLocal;
@@ -228,7 +229,7 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
         ahora,
         nombreDispositivo: globalThis.navigator.userAgent.slice(0, 120),
         plataforma: 'web',
-        versionApp: '0.1.0',
+        versionApp: versionAplicacion,
       });
       if (
         resumen.estado === 'COMPLETADO' &&

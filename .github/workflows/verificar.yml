@@ -4,7 +4,7 @@ name: Verificar
 # Si algo se rompe, se entera GitHub antes que el cliente.
 on:
   push:
-    branches: [main, rebanada-2-inventario]
+    branches: [main, develop, rebanada-2-inventario]
   pull_request:
 
 jobs:

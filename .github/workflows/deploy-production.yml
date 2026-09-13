@@ -1,0 +1,45 @@
+name: Desplegar produccion
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  comprobar-candidato:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Comprobar etiqueta y aprobacion previa en staging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          test "$TAG" = "v$VERSION"
+          DEPLOYMENT_ID="$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/$REPOSITORY/deployments?sha=$SHA&environment=staging" \
+            --jq '.[0].id // empty')"
+          test -n "$DEPLOYMENT_ID"
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/$REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+            --jq '.[0].state' | grep -qx success
+
+  production:
+    needs: comprobar-candidato
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: production
+      cloudflare_branch: main
+    secrets: inherit
