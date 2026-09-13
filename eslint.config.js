@@ -57,6 +57,16 @@ export default tseslint.config(
     // JavaScript de ESLint sin pedir informacion de tipos inexistente en Linux.
     ...tseslint.configs.disableTypeChecked,
     files: ['scripts/deployment/**/*.mjs'],
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: {
+        AbortSignal: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+        process: 'readonly',
+      },
+    },
   },
   {
     // La raiz de composicion es el unico lugar donde el tiempo entra al sistema.
