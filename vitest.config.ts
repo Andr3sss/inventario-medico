@@ -11,7 +11,12 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['packages/**/*.test.ts', 'seeds/**/*.test.ts', 'apps/**/*.test.ts'],
+    include: [
+      'packages/**/*.test.ts',
+      'seeds/**/*.test.ts',
+      'apps/**/*.test.ts',
+      'supabase/functions/**/*.test.ts',
+    ],
     environment: 'node',
     setupFiles: ['./vitest.setup.ts'],
     reporters: ['default'],

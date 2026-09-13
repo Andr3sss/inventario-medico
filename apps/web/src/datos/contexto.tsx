@@ -12,6 +12,8 @@ import { fallo, type Resultado } from '@crearcos/core';
 import {
   cerrarSesion,
   cerrarSesionCentral,
+  actualizarContrasenaCentral,
+  completarMfaCentral,
   configurarAccesoOffline,
   consolidarRevalidacionCentral,
   configuracionSupabaseValida,
@@ -26,11 +28,13 @@ import {
   iniciarSesionOffline,
   iniciarSesion,
   iniciarSesionCentral,
+  prepararMfaCentral,
   renovarAccesoOffline,
   revalidarSesionCentral,
   revocarAccesoOffline,
   sesionActual,
   sincronizar,
+  solicitarRecuperacionCentral,
   validarTokenFreelance,
   validarTokenFreelanceCentral,
   type AdministracionCentral,
@@ -38,6 +42,7 @@ import {
   type ErrorAuth,
   type ErrorFreelance,
   type DiagnosticoSincronizacion,
+  type DesafioMfaCentral,
   type SesionActiva,
 } from '@crearcos/data';
 import { prepararDispositivo } from './arranque.js';
@@ -57,6 +62,11 @@ interface ValorApp {
   readonly centralConfigurado: boolean;
   readonly modoDemoLocal: boolean;
   readonly administracionCentral: AdministracionCentral | null;
+  readonly mfaPendiente: DesafioMfaCentral | null;
+  readonly solicitarRecuperacion: (correo: string) => Promise<void>;
+  readonly actualizarContrasena: (contrasena: string) => Promise<void>;
+  readonly verificarMfa: (codigo: string) => Promise<Resultado<SesionActiva, ErrorAuth>>;
+  readonly cancelarMfa: () => Promise<void>;
   readonly entrar: (
     usuario: string,
     contrasena: string,
@@ -100,6 +110,10 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
   const [sincronizando, setSincronizando] = useState(false);
   const [requiereConfigurarAccesoOffline, setRequiereConfigurarAccesoOffline] = useState(false);
   const [revalidandoCentral, setRevalidandoCentral] = useState(false);
+  const [mfaPendiente, setMfaPendiente] = useState<{
+    readonly desafio: DesafioMfaCentral;
+    readonly identificador: string;
+  } | null>(null);
   const sincronizacionEnCurso = useRef(false);
   const administracionCentral = useMemo(
     () =>
@@ -271,12 +285,26 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
                 esperaMs: null,
               });
       if (resultado.ok) {
+        setMfaPendiente(null);
         setSesion(resultado.valor);
         if (clienteCentral !== null && resultado.valor.rol !== 'FREELANCE') {
           const configurado = await renovarAccesoOffline(db, resultado.valor, ahora(), true);
           setRequiereConfigurarAccesoOffline(!configurado);
         } else {
           setRequiereConfigurarAccesoOffline(false);
+        }
+      } else if (
+        clienteCentral !== null &&
+        ['MFA_REQUERIDA', 'MFA_INSCRIPCION_REQUERIDA'].includes(resultado.error.codigo)
+      ) {
+        try {
+          const desafio = await prepararMfaCentral(
+            clienteCentral,
+            resultado.error.codigo === 'MFA_INSCRIPCION_REQUERIDA',
+          );
+          setMfaPendiente({ desafio, identificador: usuario.trim() });
+        } catch {
+          await clienteCentral.auth.signOut({ scope: 'local' });
         }
       }
       return resultado;
@@ -409,6 +437,56 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
     }
   }, [db]);
 
+  const solicitarRecuperacion = useCallback(async (correo: string): Promise<void> => {
+    if (clienteCentral === null) throw new Error('Supabase no está configurado');
+    await solicitarRecuperacionCentral(
+      clienteCentral,
+      correo,
+      `${globalThis.location.origin}/actualizar-contrasena`,
+    );
+  }, []);
+
+  const actualizarContrasena = useCallback(async (contrasena: string): Promise<void> => {
+    if (clienteCentral === null) throw new Error('Supabase no está configurado');
+    await actualizarContrasenaCentral(clienteCentral, contrasena);
+  }, []);
+
+  const verificarMfa = useCallback(
+    async (codigo: string): Promise<Resultado<SesionActiva, ErrorAuth>> => {
+      if (db === null || clienteCentral === null || mfaPendiente === null) {
+        return fallo<ErrorAuth>({
+          codigo: 'MFA_REQUERIDA',
+          mensaje: 'El desafío MFA ya no está disponible',
+          esperaMs: null,
+        });
+      }
+      const resultado = await completarMfaCentral(
+        db,
+        clienteCentral,
+        mfaPendiente.desafio,
+        codigo,
+        mfaPendiente.identificador,
+        { ahora },
+      );
+      if (resultado.ok) {
+        setMfaPendiente(null);
+        setSesion(resultado.valor);
+        const configurado = await renovarAccesoOffline(db, resultado.valor, ahora(), true);
+        setRequiereConfigurarAccesoOffline(!configurado);
+      }
+      return resultado;
+    },
+    [db, mfaPendiente],
+  );
+
+  const cancelarMfa = useCallback(async (): Promise<void> => {
+    try {
+      if (clienteCentral !== null) await clienteCentral.auth.signOut({ scope: 'local' });
+    } finally {
+      setMfaPendiente(null);
+    }
+  }, []);
+
   const valor = useMemo<ValorApp | null>(
     () =>
       db === null
@@ -427,6 +505,11 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
             centralConfigurado,
             modoDemoLocal,
             administracionCentral,
+            mfaPendiente: mfaPendiente?.desafio ?? null,
+            solicitarRecuperacion,
+            actualizarContrasena,
+            verificarMfa,
+            cancelarMfa,
             entrar,
             entrarOffline,
             configurarPinOffline,
@@ -446,6 +529,11 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
       requiereConfigurarAccesoOffline,
       revalidandoCentral,
       administracionCentral,
+      mfaPendiente,
+      solicitarRecuperacion,
+      actualizarContrasena,
+      verificarMfa,
+      cancelarMfa,
       entrar,
       entrarOffline,
       configurarPinOffline,

@@ -489,6 +489,28 @@ Esta preparación no declara compatible ningún lector, etiqueta o QR de fábric
 La compatibilidad y la semántica unidad/lote/empaque solo se aceptan mediante el
 protocolo y acta firmada de `docs/PILOTO_HARDWARE.md`.
 
+## 44. Las contraseñas son autocontenidas y MFA eleva la autorización
+
+El Administrador puede crear y desactivar identidades, pero no asigna ni
+restablece contraseñas centrales. Supabase envía invitaciones y enlaces de
+recuperación exactos; la persona define su secreto y, después de cambiarlo, se
+cierran globalmente sus sesiones. La política reproducible exige 12 caracteres
+con mayúscula, minúscula, número y símbolo. La protección contra contraseñas
+filtradas y el SMTP se aplican en el proyecto alojado y deben quedar evidenciados
+en el runbook.
+
+TOTP es obligatorio para Administradores y opcional para los demás roles. Una
+vez verificado un factor, omitirlo deja de ser una opción. La sesión de
+aplicación solo se persiste después de AAL2, las Edge Functions comprueban el
+nivel antes de elevar a `service_role` y RLS repite la defensa para impedir que
+un token AAL1 use directamente la API de datos.
+
+Desactivar un usuario invalida el perfil y todas sus concesiones offline antes
+de bloquearlo en Auth. Reactivarlo no recupera concesiones antiguas. Retirar un
+dispositivo deshabilita atómicamente el equipo y todos sus vínculos. Esta doble
+revocación es necesaria porque un access token emitido puede sobrevivir hasta
+su expiración, aunque ya no deba autorizar ninguna operación de negocio.
+
 ## Pendiente de decidir
 
 - Tamaño óptimo del lote de sincronización (el límite defensivo actual es 200),

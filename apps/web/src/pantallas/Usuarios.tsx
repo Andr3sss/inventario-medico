@@ -6,6 +6,7 @@ import {
   crearUsuario,
   listarUsuarios,
   resetearContrasena,
+  type DispositivoCentral,
   type UsuarioResumen,
 } from '@crearcos/data';
 import {
@@ -35,6 +36,7 @@ const ETIQUETA_ROL: Readonly<Record<Rol, string>> = {
 export function Usuarios(): ReactElement {
   const { db, sesion, ahora, administracionCentral } = useApp();
   const [usuarios, setUsuarios] = useState<readonly UsuarioResumen[]>([]);
+  const [dispositivos, setDispositivos] = useState<readonly DispositivoCentral[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [cargando, setCargando] = useState(true);
   const [procesando, setProcesando] = useState(false);
@@ -68,6 +70,9 @@ export function Usuarios(): ReactElement {
         return;
       }
       setUsuarios(respuesta.valor);
+      if (administracionCentral !== null) {
+        setDispositivos(await administracionCentral.listarDispositivos());
+      }
     } catch (error) {
       setMensaje({
         tipo: 'error',
@@ -94,7 +99,11 @@ export function Usuarios(): ReactElement {
 
   const crear = async (): Promise<void> => {
     if (sesion === null) return;
-    if (nuevoId.trim() === '' || nuevoNombre.trim() === '' || nuevaContrasena === '') {
+    if (
+      nuevoId.trim() === '' ||
+      nuevoNombre.trim() === '' ||
+      (administracionCentral === null && nuevaContrasena === '')
+    ) {
       setMensaje({ tipo: 'error', titulo: 'Completa todos los campos' });
       return;
     }
@@ -120,7 +129,6 @@ export function Usuarios(): ReactElement {
                 correo: nuevoId.trim(),
                 nombre: nuevoNombre.trim(),
                 rol: nuevoRol,
-                contrasena: nuevaContrasena,
               }),
             };
       if (!respuesta.ok) {
@@ -144,7 +152,7 @@ export function Usuarios(): ReactElement {
         texto:
           administracionCentral === null
             ? `${respuesta.valor.nombre} ya puede iniciar sesión localmente.`
-            : `${respuesta.valor.nombre} ya puede iniciar sesión desde los dispositivos autorizados.`,
+            : `Se envió a ${nuevoId.trim()} una invitación para definir su propia contraseña.`,
       });
       await cargar();
     } catch (error) {
@@ -197,7 +205,12 @@ export function Usuarios(): ReactElement {
   };
 
   const resetear = async (): Promise<void> => {
-    if (sesion === null || editando === null || contrasenaReset === '') return;
+    if (
+      sesion === null ||
+      editando === null ||
+      (administracionCentral === null && contrasenaReset === '')
+    )
+      return;
     setProcesando(true);
     setMensaje(null);
     try {
@@ -206,7 +219,7 @@ export function Usuarios(): ReactElement {
           ? await resetearContrasena(db, editando.usuarioId, contrasenaReset, sesion, { ahora })
           : {
               ok: true as const,
-              valor: await administracionCentral.resetearContrasena(editando, contrasenaReset),
+              valor: await administracionCentral.enviarRecuperacion(editando),
             };
       if (!respuesta.ok) {
         setMensaje({
@@ -220,14 +233,52 @@ export function Usuarios(): ReactElement {
       setEditando(respuesta.valor);
       setMensaje({
         tipo: 'exito',
-        titulo: 'Contraseña restablecida',
-        texto: `El bloqueo de ${respuesta.valor.nombre} también fue limpiado.`,
+        titulo:
+          administracionCentral === null
+            ? 'Contraseña restablecida'
+            : 'Correo de recuperación enviado',
+        texto:
+          administracionCentral === null
+            ? `El bloqueo de ${respuesta.valor.nombre} también fue limpiado.`
+            : `${respuesta.valor.nombre} definirá una nueva contraseña mediante un enlace temporal.`,
       });
       await cargar();
     } catch (error) {
       setMensaje({
         tipo: 'error',
         titulo: 'No se pudo restablecer la contraseña',
+        texto: mensajeExcepcion(error),
+      });
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const revocarDispositivo = async (dispositivo: DispositivoCentral): Promise<void> => {
+    if (
+      administracionCentral === null ||
+      !globalThis.confirm(
+        `¿Retirar ${dispositivo.nombre}? Dejará de sincronizar y todas sus concesiones serán revocadas.`,
+      )
+    )
+      return;
+    setProcesando(true);
+    setMensaje(null);
+    try {
+      await administracionCentral.revocarDispositivo(
+        dispositivo.id,
+        'Dispositivo reportado como perdido o retirado desde la aplicación',
+      );
+      setMensaje({
+        tipo: 'exito',
+        titulo: 'Dispositivo retirado',
+        texto: `${dispositivo.nombre} ya no puede sincronizar.`,
+      });
+      await cargar();
+    } catch (error) {
+      setMensaje({
+        tipo: 'error',
+        titulo: 'No se pudo retirar el dispositivo',
         texto: mensajeExcepcion(error),
       });
     } finally {
@@ -390,6 +441,68 @@ export function Usuarios(): ReactElement {
         )}
       </section>
 
+      {administracionCentral !== null && (
+        <section className="panel tabla-panel">
+          <div className="herramientas-tabla">
+            <div>
+              <p className="sobrelinea">Revocación remota</p>
+              <h2>Dispositivos registrados</h2>
+            </div>
+            <span className="panel__nota">{dispositivos.length} dispositivos</span>
+          </div>
+          {dispositivos.length === 0 ? (
+            <Vacio
+              icono="nube"
+              titulo="No hay dispositivos registrados"
+              texto="Aparecerán después de su primera sincronización."
+            />
+          ) : (
+            <div className="tabla-contenedor">
+              <table className="tabla">
+                <thead>
+                  <tr>
+                    <th>Dispositivo</th>
+                    <th>Plataforma</th>
+                    <th>Última sincronización</th>
+                    <th>Estado</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {dispositivos.map((dispositivo) => (
+                    <tr key={dispositivo.id}>
+                      <td>
+                        <strong>{dispositivo.nombre}</strong>
+                        <br />
+                        <code>{dispositivo.id}</code>
+                      </td>
+                      <td>{dispositivo.plataforma ?? 'Sin identificar'}</td>
+                      <td>{formatearFecha(dispositivo.ultimoSyncEn)}</td>
+                      <td>
+                        <Estado tono={dispositivo.activo ? 'exito' : 'neutral'}>
+                          {dispositivo.activo ? 'Activo' : 'Retirado'}
+                        </Estado>
+                      </td>
+                      <td>
+                        {dispositivo.activo && (
+                          <Boton
+                            variante="peligro"
+                            disabled={procesando}
+                            onClick={() => void revocarDispositivo(dispositivo)}
+                          >
+                            Retirar
+                          </Boton>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
       {crearAbierto && (
         <div className="drawer" role="dialog" aria-modal="true" aria-label="Nuevo usuario">
           <button
@@ -461,23 +574,25 @@ export function Usuarios(): ReactElement {
                   <option value="SUPERVISOR">Supervisor</option>
                 </select>
               </label>
-              <label className="campo-ui">
-                <span>Contraseña inicial</span>
-                <input
-                  type="password"
-                  value={nuevaContrasena}
-                  onChange={(evento) => {
-                    setNuevaContrasena(evento.target.value);
-                  }}
-                  autoComplete="new-password"
-                />
-              </label>
+              {administracionCentral === null && (
+                <label className="campo-ui">
+                  <span>Contraseña inicial</span>
+                  <input
+                    type="password"
+                    value={nuevaContrasena}
+                    onChange={(evento) => {
+                      setNuevaContrasena(evento.target.value);
+                    }}
+                    autoComplete="new-password"
+                  />
+                </label>
+              )}
               <div className="aviso-inline aviso-inline--info">
                 <Icono nombre="alerta" />
                 <p>
                   {administracionCentral === null
                     ? 'Esta credencial se guardará en el dispositivo para permitir ingreso sin conexión.'
-                    : 'La contraseña se almacena exclusivamente en Supabase Auth y nunca en IndexedDB.'}
+                    : 'Supabase enviará una invitación temporal para que la persona defina su propia contraseña.'}
                 </p>
               </div>
             </div>
@@ -556,30 +671,39 @@ export function Usuarios(): ReactElement {
                 </div>
               )}
               <section className="seccion-formulario">
-                <h3>Restablecer contraseña</h3>
+                <h3>
+                  {administracionCentral === null ? 'Restablecer contraseña' : 'Recuperar acceso'}
+                </h3>
                 <p>
-                  Define una nueva contraseña para esta cuenta{' '}
-                  {administracionCentral === null ? 'local' : 'central'}.
+                  {administracionCentral === null
+                    ? 'Define una nueva contraseña para esta cuenta local.'
+                    : 'Envía un enlace temporal para que la persona defina una nueva contraseña. El administrador nunca la conoce.'}
                 </p>
-                <label className="campo-ui">
-                  <span>Nueva contraseña</span>
-                  <input
-                    type="password"
-                    value={contrasenaReset}
-                    onChange={(evento) => {
-                      setContrasenaReset(evento.target.value);
-                    }}
-                    autoComplete="new-password"
-                  />
-                </label>
+                {administracionCentral === null && (
+                  <label className="campo-ui">
+                    <span>Nueva contraseña</span>
+                    <input
+                      type="password"
+                      value={contrasenaReset}
+                      onChange={(evento) => {
+                        setContrasenaReset(evento.target.value);
+                      }}
+                      autoComplete="new-password"
+                    />
+                  </label>
+                )}
                 <Boton
                   variante="secundario"
-                  disabled={procesando || contrasenaReset === ''}
+                  disabled={
+                    procesando || (administracionCentral === null && contrasenaReset === '')
+                  }
                   onClick={() => {
                     void resetear();
                   }}
                 >
-                  Restablecer contraseña
+                  {administracionCentral === null
+                    ? 'Restablecer contraseña'
+                    : 'Enviar recuperación'}
                 </Boton>
               </section>
               <section className="seccion-formulario">

@@ -2,7 +2,7 @@
 
 ## Requisitos
 
-- Node.js 20 o superior.
+- Node.js 22 o superior.
 - Docker para el stack local de Supabase.
 - Acceso al proyecto para enlazar CLI o MCP.
 - Secretos en el gestor del entorno, nunca en Git.
@@ -67,7 +67,8 @@ puede ejecutar `service_role`. Desactivar `verify_jwt` en cualquier otra
 función requiere diseñar y documentar primero una autenticación equivalente.
 
 Configurar el secreto Edge `ALLOWED_ORIGINS` con una lista separada por comas
-de orígenes exactos. `SUPABASE_URL`, `SUPABASE_ANON_KEY` y
+de orígenes HTTPS exactos, sin rutas ni comodines, y `AUTH_REDIRECT_URL` con
+la URL completa `/actualizar-contrasena`. `SUPABASE_URL`, `SUPABASE_ANON_KEY` y
 `SUPABASE_SERVICE_ROLE_KEY` son secretos suministrados por la plataforma al
 runtime; service role nunca se transforma en una variable `VITE_*`.
 
@@ -143,8 +144,10 @@ eliminarse hasta observar carga real. Regenerar
 `packages/data/src/supabase/database.types.ts` después de cualquier cambio de
 esquema y revisar el diff antes de commit.
 
-Antes de producción, habilitar también **Leaked Password Protection** en la
-configuración de Supabase Auth y volver a ejecutar el advisor hasta eliminar
-esa advertencia. Es un ajuste administrado por la plataforma, no una migración
-SQL. La longitud mínima local está fijada en ocho caracteres y las altas
-administrativas aplican el mismo mínimo.
+Antes de producción, ejecutar y firmar `AUTH_SECURITY_RUNBOOK.md`. **Leaked
+Password Protection**, SMTP, Site URL y redirects son ajustes administrados por
+la plataforma, no migraciones SQL. La configuración reproducible local exige
+12 caracteres y las cuatro clases; las altas centrales son invitaciones y el
+Administrador nunca asigna contraseñas. TOTP es obligatorio para
+Administradores y optativo, pero vinculante una vez inscrito, para los demás
+roles.

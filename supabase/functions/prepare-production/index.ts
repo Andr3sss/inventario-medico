@@ -1,23 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
-
-function corsHeaders(req: Request): HeadersInit {
-  const origin = req.headers.get('origin') ?? '';
-  const allowed = (
-    Deno.env.get('ALLOWED_ORIGINS') ??
-    'http://localhost:5173,http://127.0.0.1:5173,http://[::1]:5173'
-  )
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return {
-    'Access-Control-Allow-Origin': allowed.includes(origin) ? origin : (allowed[0] ?? ''),
-    'Access-Control-Allow-Headers':
-      'authorization, apikey, content-type, x-client-info, x-application-name',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    Vary: 'Origin',
-  };
-}
+import { corsHeaders, origenPermitido, responderPreflight } from '../_shared/http.ts';
+import { validarMfaServidor } from '../_shared/auth.ts';
 
 function response(req: Request, status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -31,8 +15,8 @@ function response(req: Request, status: number, body: unknown): Response {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS')
-    return new Response(null, { status: 204, headers: corsHeaders(req) });
+  if (req.method === 'OPTIONS') return responderPreflight(req);
+  if (!origenPermitido(req)) return response(req, 403, { error: 'ORIGEN_NO_PERMITIDO' });
   if (req.method !== 'POST') return response(req, 405, { error: 'METODO_NO_PERMITIDO' });
 
   const url = Deno.env.get('SUPABASE_URL');
@@ -53,6 +37,13 @@ Deno.serve(async (req: Request) => {
   const service = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const mfaError = await validarMfaServidor(
+    userClient,
+    service,
+    authData.user.id,
+    authorization.replace(/^Bearer\s+/i, ''),
+  );
+  if (mfaError !== null) return response(req, 403, { error: mfaError });
   const { data: profile } = await service
     .from('perfiles')
     .select('rol,activo,origen')

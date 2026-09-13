@@ -10,7 +10,7 @@
     "seeds"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "typecheck": "tsc --build --force",
@@ -18,9 +18,10 @@
     "test:e2e:sync": "node -e \"if(process.env.CREARCOS_E2E_SUPABASE_LOCAL!=='true')throw new Error('CREARCOS_E2E_SUPABASE_LOCAL=true es obligatorio')\" && vitest run packages/data/src/e2e/multidispositivo.supabase.test.ts",
     "test:watch": "vitest",
     "lint": "eslint .",
+    "security:secrets": "node scripts/security/check-secrets.mjs",
     "format": "prettier --write .",
     "seed": "tsx seeds/src/cli.ts",
-    "verificar": "npm run lint && npm run typecheck && npm run test",
+    "verificar": "npm run security:secrets && npm run lint && npm run typecheck && npm run test",
     "dev": "npm run dev --workspace @crearcos/web",
     "build": "npm run build --workspace @crearcos/web",
     "supabase:bootstrap:demo": "node scripts/supabase/bootstrap-demo.mjs",

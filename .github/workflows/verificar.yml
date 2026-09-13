@@ -18,12 +18,24 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.6
+
       # ci instala exactamente lo que dice package-lock.json, sin resolver
       # versiones nuevas. Es lo que hace reproducible la compilacion.
       - run: npm ci
 
+      - run: npm run security:secrets
       - run: npm run lint
       - run: npm run typecheck
+      - name: Comprobar tipos de Edge Functions
+        run: >-
+          deno check --node-modules-dir=auto --no-lock
+          supabase/functions/administration/index.ts
+          supabase/functions/freelance-access/index.ts
+          supabase/functions/prepare-production/index.ts
+          supabase/functions/sync/index.ts
       - run: npm run test
       - run: npm run build
 

@@ -18,6 +18,15 @@ import type { ClienteSupabase } from './cliente.js';
 
 type Accion = Record<string, unknown> & { readonly accion: string };
 
+export interface DispositivoCentral {
+  readonly id: string;
+  readonly nombre: string;
+  readonly plataforma: string | null;
+  readonly activo: boolean;
+  readonly ultimoSyncEn: string | null;
+  readonly retiradoEn: string | null;
+}
+
 function registro(valor: unknown): Record<string, unknown> | null {
   return typeof valor === 'object' && valor !== null && !Array.isArray(valor)
     ? (valor as Record<string, unknown>)
@@ -94,10 +103,11 @@ export interface AdministracionCentral {
     readonly correo: string;
     readonly nombre: string;
     readonly rol: Exclude<Rol, 'SISTEMA' | 'FREELANCE'>;
-    readonly contrasena: string;
   }): Promise<UsuarioResumen>;
   cambiarEstadoUsuario(usuario: UsuarioResumen, activo: boolean): Promise<UsuarioResumen>;
-  resetearContrasena(usuario: UsuarioResumen, contrasena: string): Promise<UsuarioResumen>;
+  enviarRecuperacion(usuario: UsuarioResumen): Promise<UsuarioResumen>;
+  listarDispositivos(): Promise<readonly DispositivoCentral[]>;
+  revocarDispositivo(dispositivoId: string, motivo: string): Promise<void>;
   guardarHospital(hospital: Hospital, codigoPublico: string): Promise<Hospital>;
   crearProducto(datos: DatosProductoNuevo): Promise<FilaCatalogo>;
   registrarPieza(datos: DatosPiezaNueva, dispositivoId: string): Promise<Pieza>;
@@ -149,7 +159,6 @@ export function crearAdministracionCentral(
         correo: datos.correo,
         nombre: datos.nombre,
         rol: datos.rol,
-        contrasena: datos.contrasena,
       });
       return guardarPerfil(respuesta.usuario);
     },
@@ -165,13 +174,43 @@ export function crearAdministracionCentral(
       return guardarPerfil(respuesta.usuario);
     },
 
-    resetearContrasena: async (usuario, contrasena) => {
+    enviarRecuperacion: async (usuario) => {
       await invocar(cliente, {
-        accion: 'RESTABLECER_CONTRASENA',
+        accion: 'ENVIAR_RECUPERACION',
         usuarioId: usuario.usuarioId,
-        contrasena,
       });
       return usuario;
+    },
+
+    listarDispositivos: async () => {
+      const respuesta = await invocar(cliente, { accion: 'LISTAR_DISPOSITIVOS' });
+      const filas = Array.isArray(respuesta.dispositivos) ? respuesta.dispositivos : [];
+      return filas.flatMap((valor) => {
+        const fila = registro(valor);
+        const id = cadena(fila?.id);
+        const nombre = cadena(fila?.nombre);
+        if (fila === null || id === null || nombre === null || typeof fila.activo !== 'boolean') {
+          return [];
+        }
+        return [
+          {
+            id,
+            nombre,
+            plataforma: cadena(fila.plataforma),
+            activo: fila.activo,
+            ultimoSyncEn: cadena(fila.ultimo_sync_en),
+            retiradoEn: cadena(fila.retirado_en),
+          } satisfies DispositivoCentral,
+        ];
+      });
+    },
+
+    revocarDispositivo: async (dispositivoId, motivo) => {
+      await invocar(cliente, {
+        accion: 'REVOCAR_DISPOSITIVO',
+        dispositivoId,
+        motivo,
+      });
     },
 
     guardarHospital: async (hospital, codigoPublico) => {

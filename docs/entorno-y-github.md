@@ -26,7 +26,7 @@ De ahi salen las dos reglas que no se pueden romper:
 
 ### 1.1 Node.js
 
-Necesitas Node 20 o superior. El proyecto se construyo y probo con Node 22.
+Necesitas Node 22 o superior. El proyecto se construyó y probó con Node 22.
 
 En Windows, la forma recomendada es con **nvm-windows**, porque te deja cambiar
 de version sin reinstalar nada:

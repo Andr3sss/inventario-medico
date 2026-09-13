@@ -1,5 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
+import { corsHeaders, origenPermitido, responderPreflight } from '../_shared/http.ts';
+import { validarMfaServidor } from '../_shared/auth.ts';
 
 const MAX_BODY_BYTES = 128 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -10,24 +12,6 @@ const HUMAN_ROLES = new Set([
   'CONTABLE',
   'SUPERVISOR',
 ]);
-
-function corsHeaders(req: Request): HeadersInit {
-  const origin = req.headers.get('origin') ?? '';
-  const configured = (
-    Deno.env.get('ALLOWED_ORIGINS') ??
-    'http://localhost:5173,http://127.0.0.1:5173,http://[::1]:5173'
-  )
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return {
-    'Access-Control-Allow-Origin': configured.includes(origin) ? origin : (configured[0] ?? ''),
-    'Access-Control-Allow-Headers':
-      'authorization, apikey, content-type, x-client-info, x-application-name',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    Vary: 'Origin',
-  };
-}
 
 function json(req: Request, status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -50,9 +34,33 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function authRedirect(supabaseUrl: string): string | null {
+  const configured = Deno.env.get('AUTH_REDIRECT_URL')?.trim();
+  const candidate = configured || 'http://127.0.0.1:5173/actualizar-contrasena';
+  try {
+    const url = new URL(candidate);
+    const localSupabase = /^http:\/\/(127\.0\.0\.1|localhost):54321$/.test(supabaseUrl);
+    const localRedirect =
+      url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname);
+    if (
+      url.username !== '' ||
+      url.password !== '' ||
+      url.pathname !== '/actualizar-contrasena' ||
+      url.search !== '' ||
+      url.hash !== '' ||
+      (url.protocol !== 'https:' && !(localSupabase && localRedirect))
+    ) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS')
-    return new Response(null, { status: 204, headers: corsHeaders(req) });
+  if (req.method === 'OPTIONS') return responderPreflight(req);
+  if (!origenPermitido(req)) return json(req, 403, { error: 'ORIGEN_NO_PERMITIDO' });
   if (req.method !== 'POST') return json(req, 405, { error: 'METODO_NO_PERMITIDO' });
 
   const length = Number(req.headers.get('content-length') ?? '0');
@@ -85,6 +93,13 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const actorId = authData.user.id;
+  const mfaError = await validarMfaServidor(
+    userClient,
+    service,
+    actorId,
+    authorization.replace(/^Bearer\s+/i, ''),
+  );
+  if (mfaError !== null) return json(req, 403, { error: mfaError });
 
   const fail = (error: { message: string; code?: string } | null): Response =>
     json(req, error?.code === '42501' ? 403 : 409, {
@@ -114,21 +129,44 @@ Deno.serve(async (req: Request) => {
     return error ? fail(error) : json(req, 200, { usuarios: data ?? [] });
   }
 
+  if (action === 'LISTAR_DISPOSITIVOS') {
+    const denied = await requireAdmin();
+    if (denied) return denied;
+    const { data, error } = await service
+      .from('dispositivos')
+      .select('id,nombre,plataforma,activo,ultimo_sync_en,retirado_en')
+      .order('ultimo_sync_en', { ascending: false, nullsFirst: false });
+    return error ? fail(error) : json(req, 200, { dispositivos: data ?? [] });
+  }
+
+  if (action === 'REVOCAR_DISPOSITIVO') {
+    const deviceId = text(body.dispositivoId);
+    if (!UUID.test(deviceId) || !text(body.motivo)) {
+      return json(req, 400, { error: 'REVOCACION_INVALIDA' });
+    }
+    const { data, error } = await service.rpc('revocar_dispositivo', {
+      p_actor_id: actorId,
+      p_dispositivo_id: deviceId,
+      p_motivo: text(body.motivo),
+    });
+    return error ? fail(error) : json(req, 200, { dispositivo: data });
+  }
+
   if (action === 'CREAR_USUARIO') {
     const denied = await requireAdmin();
     if (denied) return denied;
     const email = text(body.correo).toLowerCase();
-    const password = typeof body.contrasena === 'string' ? body.contrasena : '';
     const name = text(body.nombre);
     const role = text(body.rol);
-    if (!email.includes('@') || password.length < 8 || !name || !HUMAN_ROLES.has(role)) {
+    const redirectTo = authRedirect(url);
+    if (!email.includes('@') || !name || !HUMAN_ROLES.has(role)) {
       return json(req, 400, { error: 'USUARIO_INVALIDO' });
     }
-    const { data: created, error: createError } = await service.auth.admin.createUser({
+    if (redirectTo === null) return json(req, 503, { error: 'AUTH_REDIRECT_URL_INVALIDA' });
+    const { data: created, error: createError } = await service.auth.admin.inviteUserByEmail(
       email,
-      password,
-      email_confirm: true,
-    });
+      { redirectTo, data: { nombre: name } },
+    );
     if (createError || !created.user) return fail(createError);
     const { data: profile, error: profileError } = await service.rpc(
       'provisionar_usuario_por_admin',
@@ -153,6 +191,12 @@ Deno.serve(async (req: Request) => {
     if (!UUID.test(userId) || !name || !HUMAN_ROLES.has(role) || typeof body.activo !== 'boolean') {
       return json(req, 400, { error: 'USUARIO_INVALIDO' });
     }
+    if (body.activo === true) {
+      const { error: unbanError } = await service.auth.admin.updateUserById(userId, {
+        ban_duration: 'none',
+      });
+      if (unbanError) return fail(unbanError);
+    }
     const { data, error } = await service.rpc('actualizar_perfil', {
       p_actor_id: actorId,
       p_usuario_id: userId,
@@ -160,19 +204,35 @@ Deno.serve(async (req: Request) => {
       p_rol: role,
       p_activo: body.activo,
     });
-    return error ? fail(error) : json(req, 200, { usuario: data });
+    if (error) return fail(error);
+    if (body.activo === false) {
+      const { error: banError } = await service.auth.admin.updateUserById(userId, {
+        ban_duration: '876000h',
+      });
+      if (banError) {
+        return json(req, 500, {
+          error: 'REVOCACION_AUTH_PARCIAL',
+          detalle:
+            'El perfil y sus dispositivos quedaron inactivos, pero Supabase Auth no pudo bloquear la cuenta.',
+        });
+      }
+    }
+    return json(req, 200, { usuario: data });
   }
 
-  if (action === 'RESTABLECER_CONTRASENA') {
+  if (action === 'ENVIAR_RECUPERACION') {
     const denied = await requireAdmin();
     if (denied) return denied;
     const userId = text(body.usuarioId);
-    const password = typeof body.contrasena === 'string' ? body.contrasena : '';
-    if (!UUID.test(userId) || password.length < 8) {
-      return json(req, 400, { error: 'CONTRASENA_INVALIDA' });
-    }
-    const { error } = await service.auth.admin.updateUserById(userId, { password });
-    return error ? fail(error) : json(req, 200, { actualizado: true });
+    const redirectTo = authRedirect(url);
+    if (!UUID.test(userId)) return json(req, 400, { error: 'USUARIO_INVALIDO' });
+    if (redirectTo === null) return json(req, 503, { error: 'AUTH_REDIRECT_URL_INVALIDA' });
+    const { data: userData, error: userError } = await service.auth.admin.getUserById(userId);
+    if (userError || !userData.user.email) return fail(userError);
+    const { error } = await service.auth.resetPasswordForEmail(userData.user.email, {
+      redirectTo,
+    });
+    return error ? fail(error) : json(req, 200, { enviado: true });
   }
 
   if (action === 'GUARDAR_HOSPITAL') {

@@ -540,7 +540,11 @@ interface UsuarioResumen {
 
 Con Supabase configurado, la administración usa `AdministracionCentral` y las
 identidades globales de Supabase Auth. La implementación local se conserva
-únicamente para el modo demo aislado.
+únicamente para el modo demo aislado. El contrato central no recibe
+contraseñas: `crearUsuario({ correo, nombre, rol })` envía una invitación y
+`enviarRecuperacion(usuario)` envía un enlace temporal. También expone
+`listarDispositivos()` y `revocarDispositivo(id, motivo)` para retirar equipos
+perdidos sin restaurar automáticamente sus concesiones.
 
 ### `listarUsuariosBasico(db, filtro?) → Promise<readonly UsuarioBasico[]>`
 

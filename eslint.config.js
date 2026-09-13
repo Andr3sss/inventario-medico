@@ -14,6 +14,7 @@ export default tseslint.config(
       'vitest.setup.ts',
       'apps/web/public/sw.js',
       'scripts/supabase/**',
+      'scripts/security/**',
       // Deno/JSR usa su propio runtime y no pertenece a los tsconfig Node/Vite.
       'supabase/functions/**',
       // Generado por Supabase CLI/MCP; no se edita manualmente.

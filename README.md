@@ -100,8 +100,8 @@ Dominio y datos (offline-first, corren en el dispositivo):
   sus componentes hijos.
 - Trazabilidad: historial completo de una pieza ordenado por HLC, nunca por
   reloj de pared.
-- Usuarios: alta/baja/reset de contrasena, autoservicio del Administrador,
-  nunca expone hash ni sal.
+- Usuarios: alta por invitación, baja, recuperación autocontenida, MFA TOTP y
+  retiro de dispositivos, sin exponer credenciales al Administrador.
 - Hospitales: catalogo persistido, sembrado con la semilla de prueba.
 - Alta de catalogo (`crearProducto`) y de piezas fisicas (`registrarPieza`),
   autoservicio del Administrador (brief §4).

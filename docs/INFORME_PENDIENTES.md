@@ -42,12 +42,11 @@ No deben contarse nuevamente como trabajo faltante los siguientes componentes, a
 - Cuatro Edge Functions desplegadas y activas: `sync`, `prepare-production`, `administration` y `freelance-access`.
 - Migraciones locales y remotas coincidentes al momento de la revisión.
 - Verificación actual del frontend y paquetes: lint, comprobación de tipos,
-  compilación y 229 pruebas TypeScript aprobadas. Los 2 escenarios E2E con
+  compilación y 245 pruebas TypeScript aprobadas. Los 2 escenarios E2E con
   Supabase se ejecutan únicamente en el job de infraestructura local de CI.
 - Auditoría actual de dependencias npm sin vulnerabilidades conocidas.
-- Suite pgTAP con 44 aserciones; 42 están aprobadas contra la base remota y las
-  2 nuevas de convergencia de conflictos se verifican en Supabase local dentro
-  de CI antes de desplegar la migración.
+- Suite pgTAP con 52 aserciones. CI las ejecuta desde una base vacía antes de
+  los 2 escenarios multidispositivo y bloquea la entrega si alguna falla.
 
 ### 2.2 Estado actual del entorno Supabase
 
@@ -66,27 +65,27 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 
 ## 3. Matriz de cumplimiento frente a `inventario.md`
 
-| Requisito                                                  | Estado                  | Carencia para considerarlo cerrado                                                                                                                                                   |
-| ---------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Usuarios, contraseña y roles                               | Parcial                 | El PIN offline y la revocación eventual están cubiertos técnicamente; faltan aprobación formal, recuperación y política productiva de contraseña.                                    |
-| Alta autónoma de usuarios por Administrador                | Parcial                 | Existe administración central, pero falta el ciclo de vida operativo completo: invitación/entrega segura, cambio obligatorio de contraseña, recuperación y desactivación comprobada. |
-| Inventario con código único por instrumento                | Cubierto técnicamente   | Falta validar etiquetas y lectura real después de uso, limpieza y esterilización.                                                                                                    |
-| Consumibles con QR de fábrica                              | Pendiente de validación | Debe comprobarse si el código identifica una unidad, lote o empaque; el modelo actual supone una pieza física identificable de forma única.                                          |
-| Productos simples y kits padre/hijos                       | Parcial                 | La relación física está soportada; falta validar y, si el negocio lo exige, completar administración de composición, armado, desarmado y versionado de kits.                         |
-| Lectura del código padre y selección de componentes usados | Parcial                 | El flujo existe conceptualmente; falta aceptación de campo con lector físico, velocidad y ergonomía reales.                                                                          |
-| Preparación y salida de maleta sin hospital ni precio      | Cubierto técnicamente   | Falta prueba integral en campo y definición del documento operativo si se necesita impresión o exportación de la nota.                                                               |
-| Registro de piezas usadas/no usadas                        | Cubierto técnicamente   | Falta UAT con instrumentistas y confirmación formal de estados/transiciones.                                                                                                         |
-| Reprocesamiento indefinido                                 | Cubierto técnicamente   | Falta prueba de ciclos múltiples, historial entre dispositivos y conciliación con inventario físico.                                                                                 |
-| Bodega central y bodega personal                           | Cubierto técnicamente   | Falta prueba de concurrencia real y recuperación de conflictos en dos o más dispositivos.                                                                                            |
-| Precio base, habitual, otra provincia y nota de crédito    | Cubierto técnicamente   | Falta configurar y auditar la ciudad base de producción y validar los cálculos con casos reales.                                                                                     |
-| Precio excepcional con aprobación de gerencia              | Parcial                 | El rol aprobador se ha mapeado a Administrador; falta aprobación formal del negocio y prueba completa de solicitud, aprobación, rechazo y auditoría.                                 |
-| Facturación al cerrar procedimiento                        | Parcial                 | Existe el registro/emisión; falta acordar si “facturación final” incluye PDF, impresión, exportación, integración contable o tributaria.                                             |
-| Funcionamiento permanente sin internet                     | Cubierto técnicamente   | Un usuario previamente enrolado puede reingresar con PIN durante siete días; el primer acceso requiere conexión y falta validar la política y UX en dispositivos reales.             |
-| Sincronización y resolución de conflictos                  | Cubierto técnicamente   | El historial remoto y la visibilidad de fallos están implementados; falta la prueba E2E repetible de dos dispositivos contra una base reconstruida.                                  |
-| Uso móvil y PC                                             | Parcial                 | La interfaz es adaptable, pero falta matriz de navegadores/dispositivos, accesibilidad y aceptación real.                                                                            |
-| Lector físico QR/código de barras                          | Preparado técnicamente  | Enter/Tab, foco, bloqueo concurrente y diagnóstico HID sin mutaciones están cubiertos; falta ejecutar y firmar la matriz con modelos físicos objetivo.                               |
-| Supervisor y notificaciones                                | Parcial                 | Hay agregados de conflictos, maletas demoradas y facturas bloqueadas; falta definir el alcance final, frecuencia, confirmación, escalamiento e historial.                            |
-| Acceso freelance mediante enlace limitado                  | Parcial                 | Está implementado; falta aceptación de vigencia exacta, revocación, expiración, reutilización y procedimiento de soporte.                                                            |
+| Requisito                                                  | Estado                  | Carencia para considerarlo cerrado                                                                                                                                       |
+| ---------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Usuarios, contraseña y roles                               | Parcial                 | PIN offline, recuperación, política fuerte, MFA y revocación están implementados; falta aplicar y aceptar la configuración en staging/producción.                        |
+| Alta autónoma de usuarios por Administrador                | Cubierto técnicamente   | El alta central envía una invitación y el Administrador nunca conoce la contraseña; falta probar entrega SMTP y redirects en staging.                                    |
+| Inventario con código único por instrumento                | Cubierto técnicamente   | Falta validar etiquetas y lectura real después de uso, limpieza y esterilización.                                                                                        |
+| Consumibles con QR de fábrica                              | Pendiente de validación | Debe comprobarse si el código identifica una unidad, lote o empaque; el modelo actual supone una pieza física identificable de forma única.                              |
+| Productos simples y kits padre/hijos                       | Parcial                 | La relación física está soportada; falta validar y, si el negocio lo exige, completar administración de composición, armado, desarmado y versionado de kits.             |
+| Lectura del código padre y selección de componentes usados | Parcial                 | El flujo existe conceptualmente; falta aceptación de campo con lector físico, velocidad y ergonomía reales.                                                              |
+| Preparación y salida de maleta sin hospital ni precio      | Cubierto técnicamente   | Falta prueba integral en campo y definición del documento operativo si se necesita impresión o exportación de la nota.                                                   |
+| Registro de piezas usadas/no usadas                        | Cubierto técnicamente   | Falta UAT con instrumentistas y confirmación formal de estados/transiciones.                                                                                             |
+| Reprocesamiento indefinido                                 | Cubierto técnicamente   | Falta prueba de ciclos múltiples, historial entre dispositivos y conciliación con inventario físico.                                                                     |
+| Bodega central y bodega personal                           | Cubierto técnicamente   | Falta prueba de concurrencia real y recuperación de conflictos en dos o más dispositivos.                                                                                |
+| Precio base, habitual, otra provincia y nota de crédito    | Cubierto técnicamente   | Falta configurar y auditar la ciudad base de producción y validar los cálculos con casos reales.                                                                         |
+| Precio excepcional con aprobación de gerencia              | Parcial                 | El rol aprobador se ha mapeado a Administrador; falta aprobación formal del negocio y prueba completa de solicitud, aprobación, rechazo y auditoría.                     |
+| Facturación al cerrar procedimiento                        | Parcial                 | Existe el registro/emisión; falta acordar si “facturación final” incluye PDF, impresión, exportación, integración contable o tributaria.                                 |
+| Funcionamiento permanente sin internet                     | Cubierto técnicamente   | Un usuario previamente enrolado puede reingresar con PIN durante siete días; el primer acceso requiere conexión y falta validar la política y UX en dispositivos reales. |
+| Sincronización y resolución de conflictos                  | Cubierto técnicamente   | El historial remoto y la visibilidad de fallos están implementados; falta la prueba E2E repetible de dos dispositivos contra una base reconstruida.                      |
+| Uso móvil y PC                                             | Parcial                 | La interfaz es adaptable, pero falta matriz de navegadores/dispositivos, accesibilidad y aceptación real.                                                                |
+| Lector físico QR/código de barras                          | Preparado técnicamente  | Enter/Tab, foco, bloqueo concurrente y diagnóstico HID sin mutaciones están cubiertos; falta ejecutar y firmar la matriz con modelos físicos objetivo.                   |
+| Supervisor y notificaciones                                | Parcial                 | Hay agregados de conflictos, maletas demoradas y facturas bloqueadas; falta definir el alcance final, frecuencia, confirmación, escalamiento e historial.                |
+| Acceso freelance mediante enlace limitado                  | Parcial                 | Está implementado; falta aceptación de vigencia exacta, revocación, expiración, reutilización y procedimiento de soporte.                                                |
 
 ## 4. Bloqueos prioritarios antes de producción
 
@@ -237,6 +236,22 @@ resolución administrativa.
 **Criterio de cierre:** piloto firmado con códigos y lectores reales, sin ambigüedad de identidad y con una tasa de lectura aceptada por operaciones.
 
 ### P0-07. Endurecer autenticación y configuración de Supabase
+
+> **Estado de implementación (12 de septiembre de 2026):** completado en el
+> repositorio. Auth local exige 12 caracteres y las cuatro clases, sesión
+> absoluta de 12 horas, inactividad de 1 hora, confirmación de correo, cambio
+> seguro y TOTP. Las altas usan invitación; la recuperación es autocontenida y
+> cierra sesiones globalmente. Administradores requieren AAL2 y los demás
+> usuarios también después de inscribir un factor; RLS y Edge Functions lo
+> hacen cumplir. CORS es exacto, CI detecta secretos, la desactivación bloquea
+> Auth y permisos offline, y los dispositivos perdidos pueden retirarse.
+>
+> **Cierre externo pendiente:** no hay una sesión autenticada de Supabase CLI,
+> dominio productivo ni credenciales SMTP en este equipo. Por eso todavía deben
+> ejecutarse y firmarse en staging los pasos de `docs/AUTH_SECURITY_RUNBOOK.md`:
+> rotar la clave privilegiada observada, activar protección de contraseñas
+> filtradas, SMTP, Site URL/redirects, secretos Edge, despliegue, Advisor y la
+> matriz positiva/negativa. P0-07 no se declara cerrada hasta completar esa acta.
 
 **Carencia:** la protección de contraseñas filtradas está deshabilitada y no está cerrado el ciclo productivo de correo, recuperación, redirecciones, revocación y secretos.
 

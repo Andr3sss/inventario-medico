@@ -1,7 +1,11 @@
 import { dispositivoId, usuarioId } from '@crearcos/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { SesionActiva } from '../autenticacion.js';
-import { revalidarSesionCentral } from './autenticacion.js';
+import {
+  actualizarContrasenaCentral,
+  prepararMfaCentral,
+  revalidarSesionCentral,
+} from './autenticacion.js';
 import type { ClienteSupabase } from './cliente.js';
 
 const sesion: SesionActiva = {
@@ -123,5 +127,58 @@ describe('revalidacion de una sesion central', () => {
     );
 
     expect(resultado).toMatchObject({ estado: 'NO_DISPONIBLE' });
+  });
+});
+
+describe('endurecimiento de credenciales centrales', () => {
+  it('rechaza localmente una contraseña que no cumple la política fuerte', async () => {
+    const updateUser = vi.fn();
+    const cliente = { auth: { updateUser } } as unknown as ClienteSupabase;
+    await expect(actualizarContrasenaCentral(cliente, 'solo-minusculas')).rejects.toThrow(
+      '12 caracteres',
+    );
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  it('actualiza una contraseña fuerte y revoca todas las sesiones', async () => {
+    const updateUser = vi.fn(() => Promise.resolve({ error: null }));
+    const signOut = vi.fn(() => Promise.resolve({ error: null }));
+    const cliente = {
+      auth: {
+        getUser: vi.fn(() => Promise.resolve({ data: { user: { id: 'u-1' } }, error: null })),
+        updateUser,
+        signOut,
+      },
+    } as unknown as ClienteSupabase;
+    await actualizarContrasenaCentral(cliente, 'Nueva-Clave-2026!');
+    expect(updateUser).toHaveBeenCalledWith({ password: 'Nueva-Clave-2026!' });
+    expect(signOut).toHaveBeenCalledWith({ scope: 'global' });
+  });
+
+  it('reutiliza un TOTP verificado y no crea factores duplicados', async () => {
+    const enroll = vi.fn();
+    const cliente = {
+      auth: {
+        mfa: {
+          listFactors: vi.fn(() =>
+            Promise.resolve({
+              data: {
+                all: [{ id: 'factor-1', factor_type: 'totp', status: 'verified' }],
+                totp: [{ id: 'factor-1', factor_type: 'totp', status: 'verified' }],
+              },
+              error: null,
+            }),
+          ),
+          enroll,
+        },
+      },
+    } as unknown as ClienteSupabase;
+    await expect(prepararMfaCentral(cliente, false)).resolves.toEqual({
+      factorId: 'factor-1',
+      modo: 'VERIFICAR',
+      qr: null,
+      secreto: null,
+    });
+    expect(enroll).not.toHaveBeenCalled();
   });
 });

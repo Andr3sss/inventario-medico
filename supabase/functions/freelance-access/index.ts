@@ -1,26 +1,9 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
+import { corsHeaders, origenPermitido, responderPreflight } from '../_shared/http.ts';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function corsHeaders(req: Request): HeadersInit {
-  const origin = req.headers.get('origin') ?? '';
-  const configured = (
-    Deno.env.get('ALLOWED_ORIGINS') ??
-    'http://localhost:5173,http://127.0.0.1:5173,http://[::1]:5173'
-  )
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return {
-    'Access-Control-Allow-Origin': configured.includes(origin) ? origin : (configured[0] ?? ''),
-    'Access-Control-Allow-Headers':
-      'authorization, apikey, content-type, x-client-info, x-application-name',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    Vary: 'Origin',
-  };
-}
 
 function json(req: Request, status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -44,8 +27,8 @@ function text(value: unknown): string {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS')
-    return new Response(null, { status: 204, headers: corsHeaders(req) });
+  if (req.method === 'OPTIONS') return responderPreflight(req);
+  if (!origenPermitido(req)) return json(req, 403, { error: 'ORIGEN_NO_PERMITIDO' });
   if (req.method !== 'POST') return json(req, 405, { error: 'METODO_NO_PERMITIDO' });
   const length = Number(req.headers.get('content-length') ?? '0');
   if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
