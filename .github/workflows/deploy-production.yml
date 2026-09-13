@@ -12,7 +12,7 @@ jobs:
   comprobar-candidato:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Comprobar etiqueta y aprobacion previa en staging
         shell: bash
         env:

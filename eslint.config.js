@@ -24,6 +24,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
+    // Los scripts Node ESM no forman parte de un tsconfig. Conservan las reglas
+    // JavaScript de ESLint sin pedir informacion de tipos inexistente en Linux.
+    ...tseslint.configs.disableTypeChecked,
+    files: ['scripts/deployment/**/*.mjs'],
+  },
+  {
     languageOptions: {
       parserOptions: {
         projectService: true,
