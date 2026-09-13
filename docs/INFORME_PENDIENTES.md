@@ -42,7 +42,7 @@ No deben contarse nuevamente como trabajo faltante los siguientes componentes, a
 - Cuatro Edge Functions desplegadas y activas: `sync`, `prepare-production`, `administration` y `freelance-access`.
 - Migraciones locales y remotas coincidentes al momento de la revisión.
 - Verificación actual del frontend y paquetes: lint, comprobación de tipos,
-  compilación y 221 pruebas TypeScript aprobadas. Los 2 escenarios E2E con
+  compilación y 229 pruebas TypeScript aprobadas. Los 2 escenarios E2E con
   Supabase se ejecutan únicamente en el job de infraestructura local de CI.
 - Auditoría actual de dependencias npm sin vulnerabilidades conocidas.
 - Suite pgTAP con 44 aserciones; 42 están aprobadas contra la base remota y las
@@ -84,7 +84,7 @@ Docker no está instalado en el entorno revisado. Por eso no se ha demostrado to
 | Funcionamiento permanente sin internet                     | Cubierto técnicamente   | Un usuario previamente enrolado puede reingresar con PIN durante siete días; el primer acceso requiere conexión y falta validar la política y UX en dispositivos reales.             |
 | Sincronización y resolución de conflictos                  | Cubierto técnicamente   | El historial remoto y la visibilidad de fallos están implementados; falta la prueba E2E repetible de dos dispositivos contra una base reconstruida.                                  |
 | Uso móvil y PC                                             | Parcial                 | La interfaz es adaptable, pero falta matriz de navegadores/dispositivos, accesibilidad y aceptación real.                                                                            |
-| Lector físico QR/código de barras                          | Pendiente               | No hay evidencia de pruebas con modelos de lector objetivo ni configuración de sufijo, teclado, foco y lecturas repetidas.                                                           |
+| Lector físico QR/código de barras                          | Preparado técnicamente  | Enter/Tab, foco, bloqueo concurrente y diagnóstico HID sin mutaciones están cubiertos; falta ejecutar y firmar la matriz con modelos físicos objetivo.                               |
 | Supervisor y notificaciones                                | Parcial                 | Hay agregados de conflictos, maletas demoradas y facturas bloqueadas; falta definir el alcance final, frecuencia, confirmación, escalamiento e historial.                            |
 | Acceso freelance mediante enlace limitado                  | Parcial                 | Está implementado; falta aceptación de vigencia exacta, revocación, expiración, reutilización y procedimiento de soporte.                                                            |
 
@@ -209,6 +209,20 @@ resolución administrativa.
 **Criterio de cierre:** una base vacía se reconstruye y supera automáticamente todas las pruebas de seguridad y comportamiento sin pasos manuales.
 
 ### P0-06. Validar hardware, etiquetas y flujo clínico real
+
+> **Estado de implementación (12 de septiembre de 2026):** preparación técnica
+> resuelta en la rama de trabajo. El escáner admite sufijos Enter y Tab, impide
+> envíos concurrentes, recupera el foco después de guardar, volver a la ventana
+> o cerrar el diagnóstico, y conserva la guarda de rebote de 400 ms del dominio.
+> La opción **Probar lector sin registrar** captura valor crudo, sufijo y
+> cadencia sin crear movimientos de inventario; compara contra el impreso y
+> exporta evidencia CSV neutralizada contra fórmulas. Ocho pruebas unitarias
+> cubren normalización, sufijos, coincidencias, cadencia, resumen y exportación.
+>
+> El protocolo reproducible y su acta están en `docs/PILOTO_HARDWARE.md` y
+> `docs/ACTA_PILOTO_HARDWARE.md`. **P0-06 no está cerrada todavía:** faltan los
+> lectores, códigos, materiales, ciclos y usuarios reales, además de las firmas
+> exigidas por el criterio de cierre.
 
 **Carencia:** no se ha demostrado que los códigos y lectores funcionen con el material, empaque y entorno reales.
 

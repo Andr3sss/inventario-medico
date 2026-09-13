@@ -467,6 +467,28 @@ local resuelve desde `PIEZA:<uuid>` el código físico que usa Dexie; si falta
 esa relación, conserva el cambio como error de inbox. Descartarlo y marcarlo
 como aplicado habría ocultado una divergencia real.
 
+## 43. El lector se integra como teclado HID y se diagnostica sin mutar inventario
+
+La aplicación no depende de WebUSB ni de una API propietaria: el lector físico
+objetivo escribe en el campo como un teclado HID. Enter y Tab se aceptan como
+sufijos de confirmación y Tab no desplaza el foco. Un bloqueo inmediato por
+referencia impide dos envíos mientras React propaga el estado de procesamiento;
+al terminar, al volver a la ventana o al recuperar visibilidad se intenta
+preparar el campo siguiente sin robar foco de otro control interactivo. La
+guarda de dominio de 400 ms continúa siendo la defensa auditable contra el
+rebote de un mismo código y operación.
+
+La prueba física no debe crear movimientos falsos. Por eso cada escáner ofrece
+un diagnóstico aislado que compara el valor crudo con el impreso, registra
+sufijo e intervalos entre teclas y exporta CSV. La cadencia rápida se denomina
+`RAFAGA_COMPATIBLE`: ayuda a distinguir una captura típica de lector de la
+escritura manual, pero no autentica el hardware. La exportación neutraliza
+valores que una hoja de cálculo podría interpretar como fórmulas.
+
+Esta preparación no declara compatible ningún lector, etiqueta o QR de fábrica.
+La compatibilidad y la semántica unidad/lote/empaque solo se aceptan mediante el
+protocolo y acta firmada de `docs/PILOTO_HARDWARE.md`.
+
 ## Pendiente de decidir
 
 - Tamaño óptimo del lote de sincronización (el límite defensivo actual es 200),
