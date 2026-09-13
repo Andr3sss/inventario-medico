@@ -462,6 +462,11 @@ la conservaría abierta después de ser resuelta. `CONFLICTO_CANDIDATO` continú
 restringido a Administrador, Coordinadora y Supervisor; la convergencia no
 requiere exponer esa evidencia detallada al rol operativo.
 
+El snapshot relacional de conflicto identifica la pieza por UUID. La réplica
+local resuelve desde `PIEZA:<uuid>` el código físico que usa Dexie; si falta
+esa relación, conserva el cambio como error de inbox. Descartarlo y marcarlo
+como aplicado habría ocultado una divergencia real.
+
 ## Pendiente de decidir
 
 - Tamaño óptimo del lote de sincronización (el límite defensivo actual es 200),

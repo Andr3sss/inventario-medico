@@ -819,14 +819,20 @@ async function proyectarConflicto(
   ahora: number,
 ): Promise<void> {
   const payload = registro(fila.payload);
-  const codigo = cadena(payload?.codigo) ?? cadena(payload?.pieza_codigo);
-  if (codigo === null) return;
+  const piezaId = cadena(payload?.pieza_id);
+  const piezaCentral =
+    piezaId === null ? undefined : await db.replicaCentral.get(`PIEZA:${piezaId}`);
+  const codigo =
+    cadena(payload?.codigo) ??
+    cadena(payload?.pieza_codigo) ??
+    textoDe(piezaCentral?.payload, 'codigo');
+  if (payload === null || codigo === null) throw new Error('SNAPSHOT_CONFLICTO_INVALIDO');
   await db.conflictos.put({
     conflictoId: fila.entidadId,
     codigo,
-    detectadoEn: Date.parse(cadena(payload?.detectado_en) ?? '') || ahora,
+    detectadoEn: Date.parse(cadena(payload.detectado_en) ?? '') || ahora,
     detalle: fila.payload,
-    estado: cadena(payload?.estado) === 'RESUELTO' ? 'RESUELTO' : 'ABIERTO',
+    estado: cadena(payload.estado) === 'RESUELTO' ? 'RESUELTO' : 'ABIERTO',
   });
 }
 

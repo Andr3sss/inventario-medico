@@ -136,6 +136,45 @@ describe('proyeccion del historial central', () => {
     expect((await destino.replicaCentral.get(`PRODUCTO:${productoId}`))?.version).toBe(10);
   });
 
+  it('resuelve el codigo de un conflicto central desde el snapshot de la pieza', async () => {
+    const piezaId = '00000000-0000-4000-8000-000000000101';
+    const idConflicto = '00000000-0000-4000-8000-000000000102';
+    await destino.replicaCentral.put({
+      clave: `PIEZA:${piezaId}`,
+      entidadTipo: 'PIEZA',
+      entidadId: piezaId,
+      version: 2,
+      eliminado: false,
+      payload: { codigo: CODIGO },
+    });
+    const cambio: CambioSync = {
+      ordinal: 0,
+      entidadTipo: 'CONFLICTO',
+      entidadId: idConflicto,
+      version: 0,
+      eliminado: false,
+      payload: {
+        id: idConflicto,
+        pieza_id: piezaId,
+        estado: 'ABIERTO',
+        detectado_en: new Date(reloj.ahora()).toISOString(),
+      },
+    };
+
+    const resultado = await sincronizar(
+      destino,
+      transporteDe(respuestaCon([cambio])),
+      opcionesDestino(),
+    );
+
+    expect(resultado.erroresProyeccion).toBe(0);
+    expect(await destino.conflictos.get(idConflicto)).toMatchObject({
+      conflictoId: idConflicto,
+      codigo: CODIGO,
+      estado: 'ABIERTO',
+    });
+  });
+
   it('converge el historial de una pieza y no duplica un replay', async () => {
     const registrado = await registrarEvento(
       origen,

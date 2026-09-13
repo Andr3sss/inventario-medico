@@ -42,7 +42,7 @@ No deben contarse nuevamente como trabajo faltante los siguientes componentes, a
 - Cuatro Edge Functions desplegadas y activas: `sync`, `prepare-production`, `administration` y `freelance-access`.
 - Migraciones locales y remotas coincidentes al momento de la revisión.
 - Verificación actual del frontend y paquetes: lint, comprobación de tipos,
-  compilación y 220 pruebas TypeScript aprobadas. Los 2 escenarios E2E con
+  compilación y 221 pruebas TypeScript aprobadas. Los 2 escenarios E2E con
   Supabase se ejecutan únicamente en el job de infraestructura local de CI.
 - Auditoría actual de dependencias npm sin vulnerabilidades conocidas.
 - Suite pgTAP con 44 aserciones; 42 están aprobadas contra la base remota y las
