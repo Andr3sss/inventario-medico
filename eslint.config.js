@@ -24,12 +24,6 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
-    // Los scripts Node ESM no forman parte de un tsconfig. Conservan las reglas
-    // JavaScript de ESLint sin pedir informacion de tipos inexistente en Linux.
-    ...tseslint.configs.disableTypeChecked,
-    files: ['scripts/deployment/**/*.mjs'],
-  },
-  {
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -57,6 +51,12 @@ export default tseslint.config(
       '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
     },
+  },
+  {
+    // Los scripts Node ESM no forman parte de un tsconfig. Conservan las reglas
+    // JavaScript de ESLint sin pedir informacion de tipos inexistente en Linux.
+    ...tseslint.configs.disableTypeChecked,
+    files: ['scripts/deployment/**/*.mjs'],
   },
   {
     // La raiz de composicion es el unico lugar donde el tiempo entra al sistema.
