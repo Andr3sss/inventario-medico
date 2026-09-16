@@ -5,28 +5,31 @@ reprocesamiento, precios, facturación, hospitales, usuarios y sincronización e
 dispositivos. El navegador conserva una réplica local en IndexedDB y Supabase/PostgreSQL
 mantiene la fuente central.
 
+---
+
 > [!CAUTION]
-> **AVISO DE SEGURIDAD — LEE ESTO ANTES DE CONTINUAR**
+> **AVISO DE SEGURIDAD CRÍTICO — LEE ESTO ANTES DE CONTINUAR**
 >
-> Este repositorio contiene en `.env.example` la URL pública y la clave **publicable**
-> del proyecto Supabase de demostración:
+> Este repositorio contiene credenciales reales de servicios activos. Lee con atención:
 >
-> ```
-> VITE_SUPABASE_URL=https://agcexgfniwrfmozwuuxw.supabase.co
-> VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_5fuW7WApJgTzcW0PGEEOdQ_4nhmNajx
-> ```
+> **1. Clave pública de Supabase (en `.env.example`)**
+> La URL y la clave publicable del proyecto están en el repositorio por diseño — son
+> públicas y solo permiten operaciones de usuario autenticado. Sin embargo, si el repo
+> es público en GitHub cualquiera puede ver a qué proyecto apuntan.
 >
-> La clave publicable **es pública por diseño** — es la misma que el navegador usa para
-> conectarse y no da acceso administrativo. Sin embargo, si este repositorio es **público**
-> en GitHub, cualquier persona puede ver a qué proyecto Supabase apunta y podría intentar
-> ataques de fuerza bruta contra las cuentas de usuario.
+> **2. Credenciales de acceso al panel de administración de Supabase (sección más abajo)**
+> El README incluye el correo y contraseña del panel de Supabase. Esto da **acceso
+> administrativo completo** a la base de datos, usuarios, migraciones y Edge Functions.
+> Son credenciales de operador — no son para todos los evaluadores, solo para quien
+> necesita configurar o administrar el backend.
 >
-> **Recomendaciones:**
-> - Mantén el repositorio en **privado** si las credenciales de los usuarios de prueba
->   son compartidas o sensibles.
-> - Nunca subas a Git la `SUPABASE_SERVICE_ROLE_KEY`, contraseñas de usuarios ni tokens.
->   Esas variables van únicamente en `.env.local`, que está ignorado por Git.
-> - Al terminar las pruebas, considera cambiar las contraseñas de las cuentas UAT.
+> **Reglas obligatorias:**
+> - ⛔ Nunca compartas estas credenciales fuera del equipo de confianza.
+> - ⛔ Nunca subas a Git la `SUPABASE_SERVICE_ROLE_KEY` ni ninguna contraseña de usuario
+>   al archivo `.env.local`.
+> - ⛔ No uses estas contraseñas en ningún otro servicio.
+> - ✅ Al terminar el proyecto, cambia todas las contraseñas desde el panel de Supabase.
+> - ✅ Mantén este repositorio en **privado** si es posible.
 
 ---
 
@@ -47,18 +50,18 @@ Antes de empezar confirma que tienes instalado:
 
 ## Paso 1 — Clonar el repositorio
 
-### En Windows (PowerShell)
+### Windows (PowerShell)
 
 ```powershell
-git clone https://github.com/Andr3sss/inventario-medico.git
+git clone https://github.com/Crearcos/inventario-medico.git
 Set-Location inventario-medico
 git switch main
 ```
 
-### En macOS o Linux (Terminal)
+### macOS / Linux (Terminal)
 
 ```bash
-git clone https://github.com/Andr3sss/inventario-medico.git
+git clone https://github.com/Crearcos/inventario-medico.git
 cd inventario-medico
 git switch main
 ```
@@ -68,7 +71,7 @@ git switch main
 ## Paso 2 — Configurar el entorno
 
 La URL y la clave pública del proyecto Supabase compartido ya están en `.env.example`.
-Solo hay que copiarlo:
+Solo hay que copiar el archivo:
 
 ### Windows
 
@@ -94,7 +97,7 @@ cp .env.example .env.local
 npm ci
 ```
 
-Esto instala exactamente las versiones fijadas en `package-lock.json`.
+Instala exactamente las versiones fijadas en `package-lock.json`.
 Si falla, verifica que `node --version` comience por `v22`.
 
 ---
@@ -123,7 +126,7 @@ diseñadas para correr solo en CI. No son un error.
 npm run build
 ```
 
-Genera el frontend de producción en `apps/web/dist/`. Debe terminar sin errores.
+Genera el frontend en `apps/web/dist/`. Debe terminar sin errores.
 
 ---
 
@@ -134,34 +137,46 @@ npm run dev
 ```
 
 Abre **http://localhost:5173** en el navegador.
-
-Para detener el servidor presiona `Ctrl+C` en la terminal.
+Para detener el servidor presiona `Ctrl+C`.
 
 ---
 
-## Usuarios de prueba
+## Acceso al panel de administración de Supabase
 
-Inicia sesión con cualquiera de estas cuentas para explorar el sistema según el rol.
+> [!CAUTION]
+> **Estas credenciales dan acceso administrativo completo** al backend del proyecto
+> (base de datos, usuarios, Edge Functions, migraciones). Úsalas solo si necesitas
+> configurar o inspeccionar el backend directamente. No las compartas con evaluadores
+> que solo necesitan probar la aplicación web.
+
+| Campo | Valor |
+|---|---|
+| URL del panel | https://supabase.com/dashboard |
+| Correo | `screarcos@proton.me` |
+| Contraseña del panel | `Crearcos2026@` |
+| Nombre del proyecto | `inventario-medico` |
+| Contraseña de la base de datos | `crearcos2026` |
+
+Una vez dentro del panel, busca el proyecto **inventario-medico** en el listado.
+Desde ahí puedes ver tablas, usuarios, Edge Functions, migraciones y logs.
+
+---
+
+## Usuarios de prueba de la aplicación
 
 > [!IMPORTANT]
-> Estas credenciales son para el entorno de **demostración**. No uses estas contraseñas
-> en ningún otro servicio. Al terminar las pruebas notifica al propietario para que las
-> rote.
-
-### Contraseñas
-
-| Cuenta | Contraseña |
-|---|---|
-| Administrador | `Administradorcrearcos1@` |
-| Todos los demás roles | `CrearcosUAT#2026!` |
+> Estas credenciales son solo para el entorno de demostración. No las uses en otros
+> servicios. Al terminar las pruebas notifica al propietario para que las rote.
 
 **PIN offline (todos los usuarios):** `01060412`
-El PIN se usa para desbloquear la app después de que la sesión expira o cuando
-el dispositivo no tiene conexión a internet.
 
-### Cuentas disponibles
+El PIN se usa para desbloquear la app cuando el dispositivo no tiene conexión o la
+sesión ha expirado. Solo funciona si el usuario inició sesión en línea al menos una
+vez desde ese dispositivo.
 
-| Usuario | Correo | Rol | Contraseña |
+### Tabla de cuentas
+
+| Nombre | Correo | Rol | Contraseña |
 |---|---|---|---|
 | Test Admin | `admintest@crearcos.ec` | Administrador | `Administradorcrearcos1@` |
 | Test Aux | `auxtest@crearcos.ec` | Auxiliar / Instrumentista | `CrearcosUAT#2026!` |
@@ -175,17 +190,15 @@ el dispositivo no tiene conexión a internet.
 
 | Rol | Acceso principal |
 |---|---|
-| **Administrador** | Usuarios, hospitales, catálogo completo, precios, excepciones, bootstrap |
-| **Auxiliar / Instrumentista** | Preparar maletas, escanear piezas, registrar uso en cirugía, reprocesamiento |
+| **Administrador** | Usuarios, hospitales, catálogo, precios, excepciones |
+| **Auxiliar / Instrumentista** | Preparar maletas, escanear piezas, registrar uso, reprocesamiento |
 | **Coordinadora** | Resolver conflictos de sincronización, supervisar maletas |
 | **Contable** | Ver borradores de factura, matriz de precios, emitir facturas |
 | **Supervisor** | Panel de alertas, maletas demoradas, conflictos sin resolver |
 
 ---
 
-## Flujo operativo recomendado para la prueba
-
-Usa perfiles de navegador separados si quieres simular dos usuarios al mismo tiempo.
+## Flujo operativo recomendado
 
 1. Entra como **Administrador** y crea un hospital de prueba.
 2. Entra como **Auxiliar** y prepara una maleta con las piezas disponibles.
@@ -201,14 +214,10 @@ Usa perfiles de navegador separados si quieres simular dos usuarios al mismo tie
 
 1. Entra en línea y espera a que el indicador de sincronización muestre cero pendientes.
 2. Abre DevTools (`F12`) → pestaña **Network** → selecciona **Offline**.
-3. Realiza operaciones (el sistema las guarda localmente).
+3. Realiza operaciones — el sistema las guarda localmente.
 4. Recarga la página — los datos deben seguir visibles.
 5. Vuelve a **No throttling** y pulsa sincronizar.
-6. Verifica que los cambios aparecen en otro navegador o pestaña.
-
-Para usar el sistema offline después de que la sesión expira, la app pedirá el
-**PIN offline** (`01060412`). El PIN solo funciona si el usuario inició sesión al menos
-una vez en ese dispositivo mientras tenía conexión.
+6. Verifica que los cambios aparecen desde otro navegador o pestaña.
 
 ---
 
@@ -217,10 +226,10 @@ una vez en ese dispositivo mientras tenía conexión.
 | Comando | Qué hace |
 |---|---|
 | `npm ci` | Instala dependencias exactas |
-| `npm run dev` | Inicia el servidor de desarrollo en `http://localhost:5173` |
+| `npm run dev` | Inicia el servidor en `http://localhost:5173` |
 | `npm run build` | Compila el frontend para producción |
-| `npm run verificar` | Ejecuta secretos, lint, tipos y 263 pruebas automáticas |
-| `npm run test` | Solo las pruebas (sin lint ni typecheck) |
+| `npm run verificar` | Ejecuta secretos, lint, tipos y 263 pruebas |
+| `npm run test` | Solo las pruebas |
 | `npm run lint` | Solo ESLint |
 | `npm run typecheck` | Solo TypeScript estricto |
 
@@ -228,16 +237,9 @@ una vez en ese dispositivo mientras tenía conexión.
 
 ## Solución de problemas frecuentes
 
-### La app no carga o muestra error de red
-
-Verifica que el servidor esté corriendo con `npm run dev` y que el puerto `5173` no
-esté ocupado por otro proceso. Si está ocupado, ciérralo con `Ctrl+C` y vuelve a
-ejecutar.
-
 ### `node --version` no muestra `v22`
 
-Descarga Node.js 22 LTS desde https://nodejs.org y reinstala. Después cierra y vuelve
-a abrir la terminal.
+Descarga Node.js 22 LTS desde https://nodejs.org, instala y reabre la terminal.
 
 ### `npm ci` falla
 
@@ -246,27 +248,25 @@ Remove-Item -LiteralPath node_modules -Recurse -Force
 npm ci
 ```
 
-No borres `package-lock.json`: garantiza que todos instalen las mismas versiones.
+No borres `package-lock.json`.
 
 ### `401 Unauthorized` al iniciar sesión
 
-Cierra sesión, recarga con `Ctrl+Shift+R` e intenta de nuevo. Verifica que el correo
-y la contraseña coincidan exactamente con la tabla de usuarios de arriba.
+Cierra sesión, recarga con `Ctrl+Shift+R` e intenta de nuevo con el correo y
+contraseña exactos de la tabla de arriba.
 
 ### El PIN offline no funciona
 
-El PIN offline solo funciona si previamente iniciaste sesión en línea en ese dispositivo.
-Si es la primera vez que usas ese navegador o computador, primero inicia sesión con
-correo y contraseña mientras tienes conexión.
+Primero inicia sesión con correo y contraseña mientras tienes conexión a internet.
+El PIN solo funciona después de ese primer acceso en línea.
 
 ### Puerto 5173 ocupado
 
-Vite ofrece automáticamente el siguiente puerto disponible. Usa la URL exacta que
-muestre la terminal.
+Cierra el proceso anterior con `Ctrl+C` y vuelve a ejecutar `npm run dev`.
 
 ---
 
-## Arquitectura del repositorio
+## Estructura del proyecto
 
 ```
 apps/web/             Interfaz React, rutas, pantallas y PWA
@@ -274,30 +274,6 @@ packages/core/        Dominio puro: estados, roles, precios y contratos
 packages/data/        IndexedDB, servicios, autenticación y sincronización
 supabase/migrations/  Esquema PostgreSQL reproducible (18 migraciones)
 supabase/functions/   4 Edge Functions protegidas
-supabase/tests/       Pruebas pgTAP de esquema y RLS
 seeds/                Generador de datos ficticios deterministas
-scripts/              Seguridad, despliegue, smoke y bootstrap
-docs/                 Arquitectura, protocolos y runbooks operativos
+scripts/              Scripts de bootstrap y validación de entorno
 ```
-
-Documentación técnica adicional en `docs/`:
-
-- [Configuración de Supabase](docs/SUPABASE_SETUP.md)
-- [Arquitectura de base de datos](docs/DATABASE_ARCHITECTURE.md)
-- [Protocolo de sincronización](docs/SYNC_PROTOCOL.md)
-- [Seguridad de autenticación](docs/AUTH_SECURITY_RUNBOOK.md)
-- [Despliegue y rollback](docs/DEPLOYMENT_RUNBOOK.md)
-- [Estado actual y pendientes](docs/INFORME_PENDIENTES.md)
-
----
-
-## Notas de seguridad importantes
-
-- No existe recuperación de contraseña por enlace. Solo el Administrador puede
-  asignar contraseñas, confirmando con su PIN administrativo.
-- RLS está habilitado en todas las tablas. El navegador no puede ejecutar comandos
-  administrativos ni usar la clave `service_role`.
-- El trabajo offline caduca a los 7 días sin conexión. Al reconectar, la identidad
-  se revalida con el servidor central.
-- Este entorno está en modo `DEMO`. No debe usarse con datos reales de pacientes
-  ni información clínica confidencial.
