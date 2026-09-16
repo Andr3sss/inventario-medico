@@ -18,6 +18,26 @@ import type { ClienteSupabase } from './cliente.js';
 
 type Accion = Record<string, unknown> & { readonly accion: string };
 
+const MENSAJES_ADMINISTRACION: Readonly<Record<string, string>> = {
+  AUTENTICACION_REQUERIDA: 'Tu sesión central terminó. Inicia sesión nuevamente.',
+  CAMBIO_CONTRASENA_INVALIDO:
+    'Usa una contraseña de 12 a 72 caracteres con mayúscula, minúscula, número y símbolo.',
+  CAMBIO_CONTRASENA_PARCIAL:
+    'La contraseña cambió, pero no se revocaron todos los accesos offline. Reintenta la operación.',
+  CONFIRMACION_ELIMINACION_INVALIDA: 'Escribe ELIMINAR para confirmar la eliminación definitiva.',
+  NO_SE_PUEDE_ELIMINAR_PROPIA_CUENTA: 'No puedes eliminar la cuenta con la que estás trabajando.',
+  NO_SE_PUEDE_ELIMINAR_ULTIMO_ADMIN:
+    'Debe existir otro Administrador activo antes de eliminar esta cuenta.',
+  NO_SE_PUEDE_MODIFICAR_PROPIO_ACCESO:
+    'No puedes cambiar tu propio rol ni desactivar tu acceso desde esta sesión.',
+  PIN_ADMIN_BLOQUEADO: 'El PIN de Administrador está bloqueado durante 15 minutos.',
+  PIN_ADMIN_DEBIL: 'El PIN debe tener 8 dígitos y evitar secuencias o números repetidos.',
+  PIN_ADMIN_INVALIDO: 'El PIN de Administrador es incorrecto.',
+  SESION_INVALIDA: 'Tu sesión central terminó. Inicia sesión nuevamente.',
+  USUARIO_NO_ADMITE_CONTRASENA: 'Esta identidad no admite contraseña o ya fue eliminada.',
+  USUARIO_INVALIDO: 'Revisa el correo, el nombre y el rol del usuario.',
+};
+
 export interface DispositivoCentral {
   readonly id: string;
   readonly nombre: string;
@@ -69,9 +89,11 @@ async function mensajeFuncion(error: unknown): Promise<string> {
   if (context instanceof Response) {
     try {
       const body = registro(await context.clone().json());
+      const codigo = cadena(body?.error);
       return (
         cadena(body?.detalle) ??
-        cadena(body?.error) ??
+        (codigo === null ? null : MENSAJES_ADMINISTRACION[codigo]) ??
+        codigo ??
         cadena(envelope?.message) ??
         'Operación central rechazada'
       );
@@ -85,13 +107,25 @@ async function mensajeFuncion(error: unknown): Promise<string> {
   );
 }
 
-async function invocar(cliente: ClienteSupabase, cuerpo: Accion): Promise<Record<string, unknown>> {
+function esSesionInvalida(error: unknown): boolean {
+  const context = registro(error)?.context;
+  return context instanceof Response && context.status === 401;
+}
+
+async function invocar(
+  cliente: ClienteSupabase,
+  cuerpo: Accion,
+  alInvalidarSesion?: () => void,
+): Promise<Record<string, unknown>> {
   const respuestaFuncion = await cliente.functions.invoke<unknown>('administration', {
     body: cuerpo,
   });
   const data: unknown = respuestaFuncion.data;
   const error: unknown = respuestaFuncion.error;
-  if (error) throw new Error(await mensajeFuncion(error));
+  if (error) {
+    if (esSesionInvalida(error)) alInvalidarSesion?.();
+    throw new Error(await mensajeFuncion(error));
+  }
   const respuesta = registro(data);
   if (respuesta === null) throw new Error('RESPUESTA_CENTRAL_INVALIDA');
   return respuesta;
@@ -103,14 +137,35 @@ export interface AdministracionCentral {
     readonly correo: string;
     readonly nombre: string;
     readonly rol: Exclude<Rol, 'SISTEMA' | 'FREELANCE'>;
+    readonly contrasena: string;
+    readonly pinAdministrador: string;
   }): Promise<UsuarioResumen>;
+  editarUsuario(
+    usuario: UsuarioResumen,
+    cambios: {
+      readonly correo: string;
+      readonly nombre: string;
+      readonly rol: Exclude<Rol, 'SISTEMA' | 'FREELANCE'>;
+    },
+  ): Promise<UsuarioResumen>;
   cambiarEstadoUsuario(usuario: UsuarioResumen, activo: boolean): Promise<UsuarioResumen>;
-  enviarRecuperacion(usuario: UsuarioResumen): Promise<UsuarioResumen>;
+  cambiarContrasena(
+    usuario: UsuarioResumen,
+    contrasena: string,
+    pinAdministrador: string,
+  ): Promise<UsuarioResumen>;
+  configurarPinAdministrador(pin: string): Promise<void>;
+  eliminarUsuario(usuario: UsuarioResumen): Promise<void>;
   listarDispositivos(): Promise<readonly DispositivoCentral[]>;
   revocarDispositivo(dispositivoId: string, motivo: string): Promise<void>;
   guardarHospital(hospital: Hospital, codigoPublico: string): Promise<Hospital>;
+  eliminarHospital(hospital: Hospital): Promise<void>;
   crearProducto(datos: DatosProductoNuevo): Promise<FilaCatalogo>;
+  actualizarProducto(producto: FilaCatalogo, datos: DatosProductoNuevo): Promise<FilaCatalogo>;
+  eliminarProducto(producto: FilaCatalogo): Promise<void>;
   registrarPieza(datos: DatosPiezaNueva, dispositivoId: string): Promise<Pieza>;
+  actualizarPieza(pieza: Pieza, datos: DatosPiezaNueva, dispositivoId: string): Promise<Pieza>;
+  eliminarPieza(pieza: Pieza, dispositivoId: string): Promise<void>;
   proponerExcepcion(datos: DatosExcepcionNueva): Promise<FilaExcepcionPrecio>;
   decidirExcepcion(
     excepcion: FilaExcepcionPrecio,
@@ -127,8 +182,15 @@ export function crearAdministracionCentral(
   db: BaseLocal,
   cliente: ClienteSupabase,
   ahora: () => number,
+  alInvalidarSesion?: () => void,
 ): AdministracionCentral {
-  const guardarPerfil = async (valor: unknown): Promise<UsuarioResumen> => {
+  const invocarCentral = (cuerpo: Accion): Promise<Record<string, unknown>> =>
+    invocar(cliente, cuerpo, alInvalidarSesion);
+
+  const guardarPerfil = async (
+    valor: unknown,
+    correoAlternativo: string | null = null,
+  ): Promise<UsuarioResumen> => {
     const fila = registro(valor);
     if (fila === null) throw new Error('PERFIL_CENTRAL_INVALIDO');
     const id = cadena(fila.id);
@@ -143,47 +205,178 @@ export function crearAdministracionCentral(
       activo: fila.activo,
       validoHasta: ahora() + 30 * 24 * 60 * 60 * 1000,
     });
-    return { usuarioId: id, nombre, rol: fila.rol, activo: fila.activo, bloqueadoHasta: null };
+    return {
+      usuarioId: id,
+      correo: cadena(fila.correo)?.toLocaleLowerCase('en-US') ?? correoAlternativo,
+      nombre,
+      rol: fila.rol,
+      activo: fila.activo,
+      bloqueadoHasta: null,
+    };
+  };
+
+  const buscarReplica = async (
+    entidadTipo: 'PRODUCTO' | 'PIEZA',
+    campo: 'sku' | 'codigo',
+    valor: string,
+  ) =>
+    db.replicaCentral
+      .where('entidadTipo')
+      .equals(entidadTipo)
+      .filter((replica) => cadena(registro(replica.payload)?.[campo]) === valor)
+      .first();
+
+  const guardarProductoCentral = async (valor: unknown): Promise<FilaCatalogo> => {
+    const fila = registro(valor);
+    const id = cadena(fila?.id);
+    const sku = cadena(fila?.sku);
+    const nombre = cadena(fila?.nombre);
+    const tipo = cadena(fila?.tipo);
+    if (
+      fila === null ||
+      id === null ||
+      sku === null ||
+      nombre === null ||
+      !['INSTRUMENTAL', 'INSUMO', 'KIT'].includes(tipo ?? '')
+    ) {
+      throw new Error('PRODUCTO_CENTRAL_INVALIDO');
+    }
+    const resultado: FilaCatalogo = {
+      sku,
+      nombre,
+      tipo: tipo as FilaCatalogo['tipo'],
+      costoBase: numero(fila.costo_base_centavos),
+    };
+    await db.transaction('rw', [db.catalogo, db.replicaCentral], async () => {
+      await db.catalogo.put(resultado);
+      await db.replicaCentral.put({
+        clave: `PRODUCTO:${id}`,
+        entidadTipo: 'PRODUCTO',
+        entidadId: id,
+        version: numero(fila.version),
+        eliminado: false,
+        payload: fila,
+      });
+    });
+    return resultado;
+  };
+
+  const guardarPiezaCentral = async (valor: unknown): Promise<Pieza> => {
+    const fila = registro(valor);
+    const id = cadena(fila?.id);
+    const codigo = cadena(fila?.codigo);
+    const sku = cadena(fila?.sku);
+    const tipo = cadena(fila?.tipo);
+    const estado = cadena(fila?.estado);
+    const hlc = cadena(fila?.hlc);
+    const ubicacion = registro(fila?.ubicacion);
+    if (
+      fila === null ||
+      id === null ||
+      codigo === null ||
+      sku === null ||
+      hlc === null ||
+      estado !== 'EN_BODEGA_CENTRAL' ||
+      ubicacion?.clase !== 'BODEGA_CENTRAL' ||
+      !['INSTRUMENTAL', 'INSUMO', 'KIT'].includes(tipo ?? '')
+    ) {
+      throw new Error('PIEZA_CENTRAL_INVALIDA');
+    }
+    const padre = cadena(fila.parentCodigo);
+    const resultado: Pieza = {
+      codigo: crearCodigoPieza(codigo),
+      sku: crearSku(sku),
+      tipo: tipo as Pieza['tipo'],
+      estado,
+      ubicacion: BODEGA_CENTRAL,
+      maletaId: null,
+      parentCodigo: padre === null ? null : crearCodigoPieza(padre),
+      version: numero(fila.version),
+      hlc,
+    };
+    await db.transaction('rw', [db.piezas, db.replicaCentral], async () => {
+      await db.piezas.put(resultado);
+      await db.replicaCentral.put({
+        clave: `PIEZA:${id}`,
+        entidadTipo: 'PIEZA',
+        entidadId: id,
+        version: resultado.version,
+        eliminado: false,
+        payload: fila,
+      });
+    });
+    return resultado;
   };
 
   return {
     listarUsuarios: async () => {
-      const respuesta = await invocar(cliente, { accion: 'LISTAR_USUARIOS' });
+      const respuesta = await invocarCentral({ accion: 'LISTAR_USUARIOS' });
       const filas = Array.isArray(respuesta.usuarios) ? respuesta.usuarios : [];
-      return Promise.all(filas.map(guardarPerfil));
+      return Promise.all(filas.map((fila) => guardarPerfil(fila)));
     },
 
     crearUsuario: async (datos) => {
-      const respuesta = await invocar(cliente, {
+      const respuesta = await invocarCentral({
         accion: 'CREAR_USUARIO',
         correo: datos.correo,
         nombre: datos.nombre,
         rol: datos.rol,
+        contrasena: datos.contrasena,
+        pinAdministrador: datos.pinAdministrador,
       });
-      return guardarPerfil(respuesta.usuario);
+      return guardarPerfil(respuesta.usuario, datos.correo.trim().toLocaleLowerCase('en-US'));
+    },
+
+    editarUsuario: async (usuario, cambios) => {
+      const respuesta = await invocarCentral({
+        accion: 'EDITAR_USUARIO',
+        usuarioId: usuario.usuarioId,
+        correo: cambios.correo,
+        nombre: cambios.nombre,
+        rol: cambios.rol,
+      });
+      return guardarPerfil(respuesta.usuario, cambios.correo.trim().toLocaleLowerCase('en-US'));
     },
 
     cambiarEstadoUsuario: async (usuario, activo) => {
-      const respuesta = await invocar(cliente, {
+      const respuesta = await invocarCentral({
         accion: 'ACTUALIZAR_USUARIO',
         usuarioId: usuario.usuarioId,
         nombre: usuario.nombre,
         rol: usuario.rol,
         activo,
       });
-      return guardarPerfil(respuesta.usuario);
+      return guardarPerfil(respuesta.usuario, usuario.correo);
     },
 
-    enviarRecuperacion: async (usuario) => {
-      await invocar(cliente, {
-        accion: 'ENVIAR_RECUPERACION',
+    cambiarContrasena: async (usuario, contrasena, pinAdministrador) => {
+      const respuesta = await invocarCentral({
+        accion: 'CAMBIAR_CONTRASENA_USUARIO',
         usuarioId: usuario.usuarioId,
+        contrasena,
+        pinAdministrador,
       });
-      return usuario;
+      return guardarPerfil(respuesta.usuario, usuario.correo);
+    },
+
+    configurarPinAdministrador: async (pin) => {
+      await invocarCentral({
+        accion: 'CONFIGURAR_PIN_ADMIN',
+        pinAdministrador: pin,
+      });
+    },
+
+    eliminarUsuario: async (usuario) => {
+      await invocarCentral({
+        accion: 'ELIMINAR_USUARIO',
+        usuarioId: usuario.usuarioId,
+        confirmacion: 'ELIMINAR',
+      });
+      await db.perfilesCentrales.delete(usuario.usuarioId);
     },
 
     listarDispositivos: async () => {
-      const respuesta = await invocar(cliente, { accion: 'LISTAR_DISPOSITIVOS' });
+      const respuesta = await invocarCentral({ accion: 'LISTAR_DISPOSITIVOS' });
       const filas = Array.isArray(respuesta.dispositivos) ? respuesta.dispositivos : [];
       return filas.flatMap((valor) => {
         const fila = registro(valor);
@@ -206,7 +399,7 @@ export function crearAdministracionCentral(
     },
 
     revocarDispositivo: async (dispositivoId, motivo) => {
-      await invocar(cliente, {
+      await invocarCentral({
         accion: 'REVOCAR_DISPOSITIVO',
         dispositivoId,
         motivo,
@@ -216,7 +409,7 @@ export function crearAdministracionCentral(
     guardarHospital: async (hospital, codigoPublico) => {
       const id = esUuid(hospital.id) ? hospital.id : uuidV7(ahora());
       const replica = await db.replicaCentral.get(`HOSPITAL:${id}`);
-      const respuesta = await invocar(cliente, {
+      const respuesta = await invocarCentral({
         accion: 'GUARDAR_HOSPITAL',
         hospitalId: id,
         codigo: codigoPublico,
@@ -260,8 +453,31 @@ export function crearAdministracionCentral(
       return resultado;
     },
 
+    eliminarHospital: async (hospital) => {
+      const replica = await db.replicaCentral.get(`HOSPITAL:${hospital.id}`);
+      const respuesta = await invocarCentral({
+        accion: 'ELIMINAR_HOSPITAL',
+        hospitalId: hospital.id,
+        versionEsperada: replica?.version ?? null,
+      });
+      const fila = registro(respuesta.hospital);
+      await db.transaction('rw', [db.hospitales, db.replicaCentral], async () => {
+        await db.hospitales.delete(hospital.id);
+        if (fila !== null) {
+          await db.replicaCentral.put({
+            clave: `HOSPITAL:${hospital.id}`,
+            entidadTipo: 'HOSPITAL',
+            entidadId: hospital.id,
+            version: numero(fila.version),
+            eliminado: true,
+            payload: fila,
+          });
+        }
+      });
+    },
+
     crearProducto: async (datos) => {
-      const respuesta = await invocar(cliente, {
+      const respuesta = await invocarCentral({
         accion: 'CREAR_PRODUCTO',
         productoId: uuidV7(ahora()),
         sku: datos.sku,
@@ -269,30 +485,50 @@ export function crearAdministracionCentral(
         tipo: datos.tipo,
         costoBaseCentavos: datos.costoBase,
       });
+      return guardarProductoCentral(respuesta.producto);
+    },
+
+    actualizarProducto: async (producto, datos) => {
+      const replica = await buscarReplica('PRODUCTO', 'sku', producto.sku);
+      const respuesta = await invocarCentral({
+        accion: 'ACTUALIZAR_PRODUCTO',
+        sku: producto.sku,
+        nombre: datos.nombre,
+        tipo: datos.tipo,
+        costoBaseCentavos: datos.costoBase,
+        versionEsperada: replica?.version ?? null,
+      });
+      return guardarProductoCentral(respuesta.producto);
+    },
+
+    eliminarProducto: async (producto) => {
+      const replica = await buscarReplica('PRODUCTO', 'sku', producto.sku);
+      const respuesta = await invocarCentral({
+        accion: 'ELIMINAR_PRODUCTO',
+        sku: producto.sku,
+        versionEsperada: replica?.version ?? null,
+      });
       const fila = registro(respuesta.producto);
-      const sku = cadena(fila?.sku);
-      const nombre = cadena(fila?.nombre);
-      const tipo = cadena(fila?.tipo);
-      if (
-        fila === null ||
-        sku === null ||
-        nombre === null ||
-        !['INSTRUMENTAL', 'INSUMO', 'KIT'].includes(tipo ?? '')
-      ) {
-        throw new Error('PRODUCTO_CENTRAL_INVALIDO');
-      }
-      const resultado: FilaCatalogo = {
-        sku,
-        nombre,
-        tipo: tipo as FilaCatalogo['tipo'],
-        costoBase: numero(fila.costo_base_centavos),
-      };
-      await db.catalogo.put(resultado);
-      return resultado;
+      await db.transaction('rw', [db.catalogo, db.replicaCentral], async () => {
+        await db.catalogo.delete(producto.sku);
+        if (fila !== null) {
+          const id = cadena(fila.id) ?? replica?.entidadId;
+          if (id !== undefined) {
+            await db.replicaCentral.put({
+              clave: `PRODUCTO:${id}`,
+              entidadTipo: 'PRODUCTO',
+              entidadId: id,
+              version: numero(fila.version),
+              eliminado: true,
+              payload: fila,
+            });
+          }
+        }
+      });
     },
 
     registrarPieza: async (datos, deviceId) => {
-      const respuesta = await invocar(cliente, {
+      const respuesta = await invocarCentral({
         accion: 'REGISTRAR_PIEZA',
         dispositivoId: deviceId,
         nombreDispositivo: globalThis.navigator.userAgent.slice(0, 120),
@@ -301,39 +537,54 @@ export function crearAdministracionCentral(
         sku: datos.sku,
         kitPadreCodigo: datos.parentCodigo ?? null,
       });
+      return guardarPiezaCentral(respuesta.pieza);
+    },
+
+    actualizarPieza: async (pieza, datos, deviceId) => {
+      const replica = await buscarReplica('PIEZA', 'codigo', pieza.codigo);
+      const respuesta = await invocarCentral({
+        accion: 'ACTUALIZAR_PIEZA',
+        dispositivoId: deviceId,
+        nombreDispositivo: globalThis.navigator.userAgent.slice(0, 120),
+        codigo: pieza.codigo,
+        sku: datos.sku,
+        kitPadreCodigo: datos.parentCodigo ?? null,
+        versionEsperada: replica?.version ?? pieza.version,
+      });
+      return guardarPiezaCentral(respuesta.pieza);
+    },
+
+    eliminarPieza: async (pieza, deviceId) => {
+      const replica = await buscarReplica('PIEZA', 'codigo', pieza.codigo);
+      const respuesta = await invocarCentral({
+        accion: 'ELIMINAR_PIEZA',
+        dispositivoId: deviceId,
+        nombreDispositivo: globalThis.navigator.userAgent.slice(0, 120),
+        codigo: pieza.codigo,
+        versionEsperada: replica?.version ?? pieza.version,
+      });
       const fila = registro(respuesta.pieza);
-      const codigo = cadena(fila?.codigo);
-      const sku = cadena(fila?.sku);
-      const tipo = cadena(fila?.tipo);
-      const hlc = cadena(fila?.hlc);
-      if (
-        fila === null ||
-        codigo === null ||
-        sku === null ||
-        hlc === null ||
-        !['INSTRUMENTAL', 'INSUMO', 'KIT'].includes(tipo ?? '')
-      ) {
-        throw new Error('PIEZA_CENTRAL_INVALIDA');
-      }
-      const padre = cadena(fila.parentCodigo);
-      const resultado: Pieza = {
-        codigo: crearCodigoPieza(codigo),
-        sku: crearSku(sku),
-        tipo: tipo as Pieza['tipo'],
-        estado: 'EN_BODEGA_CENTRAL',
-        ubicacion: BODEGA_CENTRAL,
-        maletaId: null,
-        parentCodigo: padre === null ? null : crearCodigoPieza(padre),
-        version: numero(fila.version),
-        hlc,
-      };
-      await db.piezas.put(resultado);
-      return resultado;
+      await db.transaction('rw', [db.piezas, db.replicaCentral], async () => {
+        await db.piezas.delete(pieza.codigo);
+        if (fila !== null) {
+          const id = cadena(fila.id) ?? replica?.entidadId;
+          if (id !== undefined) {
+            await db.replicaCentral.put({
+              clave: `PIEZA:${id}`,
+              entidadTipo: 'PIEZA',
+              entidadId: id,
+              version: numero(fila.version),
+              eliminado: true,
+              payload: fila,
+            });
+          }
+        }
+      });
     },
 
     proponerExcepcion: async (datos) => {
       const id = uuidV7(ahora());
-      await invocar(cliente, {
+      await invocarCentral({
         accion: 'PROPONER_EXCEPCION',
         excepcionId: id,
         sku: datos.sku,
@@ -362,7 +613,7 @@ export function crearAdministracionCentral(
         decision === 'RECHAZADO' && (motivo === undefined || motivo.trim() === '')
           ? 'Rechazado por el Administrador'
           : (motivo ?? null);
-      await invocar(cliente, {
+      await invocarCentral({
         accion: 'DECIDIR_EXCEPCION',
         excepcionId: excepcion.id,
         decision,
@@ -378,7 +629,7 @@ export function crearAdministracionCentral(
     },
 
     listarAccesosFreelance: async (maletaId) => {
-      const respuesta = await invocar(cliente, {
+      const respuesta = await invocarCentral({
         accion: 'LISTAR_ACCESOS_FREELANCE',
         maletaId,
       });
@@ -424,7 +675,7 @@ export function crearAdministracionCentral(
     },
 
     crearAccesoFreelance: async (maletaId) => {
-      const respuesta = await invocar(cliente, {
+      const respuesta = await invocarCentral({
         accion: 'CREAR_ACCESO_FREELANCE',
         maletaId,
         expiraEn: new Date(ahora() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -454,7 +705,7 @@ export function crearAdministracionCentral(
     revocarAccesoFreelance: async (token) => {
       const fila = await db.tokensFreelance.get(token);
       if (fila?.accesoId === undefined) throw new Error('ACCESO_CENTRAL_NO_IDENTIFICADO');
-      await invocar(cliente, {
+      await invocarCentral({
         accion: 'REVOCAR_ACCESO_FREELANCE',
         accesoId: fila.accesoId,
         motivo: 'Revocado desde la aplicación',

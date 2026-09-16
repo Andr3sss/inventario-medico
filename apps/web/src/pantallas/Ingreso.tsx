@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { AREAS, areaInicial } from '@crearcos/core';
 import { listarAccesosOffline, type ResumenAccesoOffline } from '@crearcos/data';
 import { useApp } from '../datos/contexto.js';
@@ -16,18 +16,14 @@ export function Ingreso(): ReactElement {
     entrar,
     entrarOffline,
     modoDemoLocal,
-    mfaPendiente,
     persistente,
     sesion,
-    verificarMfa,
-    cancelarMfa,
   } = useApp();
   const [usuario, setUsuario] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [usarPin, setUsarPin] = useState(centralConfigurado && !enLinea);
-  const [codigoMfa, setCodigoMfa] = useState('');
   const [accesosOffline, setAccesosOffline] = useState<readonly ResumenAccesoOffline[]>([]);
   const hayAccesoDisponible = accesosOffline.some((acceso) => acceso.estado === 'DISPONIBLE');
 
@@ -52,87 +48,6 @@ export function Ingreso(): ReactElement {
   if (sesion !== null) {
     const destino = areaInicial(sesion.rol);
     return <Navigate to={destino === null ? '/sin-acceso' : AREAS[destino].ruta} replace />;
-  }
-
-  if (mfaPendiente !== null) {
-    const comprobarMfa = async (): Promise<void> => {
-      setEnviando(true);
-      setError(null);
-      const resultado = await verificarMfa(codigoMfa);
-      if (!resultado.ok) setError(resultado.error.mensaje);
-      setEnviando(false);
-    };
-    return (
-      <div className="ingreso">
-        <section className="ingreso__panel">
-          <p className="sobrelinea">Crearcos · segundo factor</p>
-          <h1>Protege tu cuenta</h1>
-          <p className="ingreso__proposito">
-            {mfaPendiente.modo === 'INSCRIBIR'
-              ? 'Los administradores deben usar una aplicación autenticadora.'
-              : 'Confirma el código temporal de tu aplicación autenticadora.'}
-          </p>
-        </section>
-        <section className="ingreso__formulario">
-          <div className="ingreso__caja">
-            <h2 className="ingreso__titulo">
-              {mfaPendiente.modo === 'INSCRIBIR' ? 'Configurar MFA' : 'Verificar MFA'}
-            </h2>
-            {mfaPendiente.qr !== null && (
-              <>
-                <img
-                  src={mfaPendiente.qr}
-                  alt="Código QR para configurar MFA"
-                  width="220"
-                  height="220"
-                />
-                <p className="ingreso__ayuda">
-                  Escanea el QR. Si no puedes, usa esta clave: <code>{mfaPendiente.secreto}</code>
-                </p>
-              </>
-            )}
-            <form
-              onSubmit={(evento) => {
-                evento.preventDefault();
-                void comprobarMfa();
-              }}
-            >
-              <label className="campo">
-                <span className="campo__etiqueta">Código de seis dígitos</span>
-                <input
-                  className="campo__control"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  pattern="[0-9]{6}"
-                  maxLength={6}
-                  required
-                  value={codigoMfa}
-                  onChange={(evento) => {
-                    setCodigoMfa(evento.target.value);
-                  }}
-                />
-              </label>
-              <button className="boton" type="submit" disabled={enviando}>
-                {enviando ? 'Verificando…' : 'Confirmar'}
-              </button>
-              <button
-                className="boton"
-                type="button"
-                disabled={enviando}
-                onClick={() => void cancelarMfa()}
-              >
-                Cancelar
-              </button>
-            </form>
-            {error !== null && (
-              <p className="aviso" role="alert">
-                {error}
-              </p>
-            )}
-          </div>
-        </section>
-      </div>
-    );
   }
 
   const enviar = async (): Promise<void> => {
@@ -286,12 +201,6 @@ export function Ingreso(): ReactElement {
               {enviando ? 'Verificando' : usarPin ? 'Desbloquear' : 'Entrar'}
             </button>
           </form>
-
-          {centralConfigurado && !usarPin && (
-            <p className="ingreso__ayuda">
-              <Link to="/recuperar-contrasena">Olvidé mi contraseña</Link>
-            </p>
-          )}
 
           {centralConfigurado && usarPin && !hayAccesoDisponible && (
             <div className="aviso aviso--neutro">

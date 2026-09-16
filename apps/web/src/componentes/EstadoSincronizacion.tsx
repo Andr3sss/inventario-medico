@@ -360,6 +360,7 @@ function SeccionFallidos({
 
 function areaCorreccion(fila: FilaFallido): Area {
   const tipo = fila.evento.cuerpo.tipo;
+  if (tipo === 'GUARDAR_HOSPITAL') return 'hospitales';
   if (tipo.startsWith('MALETA_')) return 'maletas';
   if (tipo === 'CONFIRMAR_FACTURA') return 'facturacion';
   if (tipo === 'INGRESO_REPROCESO' || tipo === 'FIN_REPROCESO') return 'reprocesamiento';

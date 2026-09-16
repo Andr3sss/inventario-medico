@@ -226,6 +226,109 @@ export async function iniciarSesionOffline(
   return ok(sesion);
 }
 
+/**
+ * Confirma localmente el PIN del Administrador sin abrir ni reemplazar la
+ * sesión. La operación central todavía vuelve a comprobar JWT, perfil activo y
+ * rol en el servidor; el PIN es una segunda confirmación del operador presente.
+ */
+export async function confirmarPinAdministrador(
+  db: BaseLocal,
+  sesion: SesionActiva,
+  pin: string,
+  opciones: OpcionesAccesoOffline,
+): Promise<Resultado<true, ErrorAuth>> {
+  const ahora = opciones.ahora();
+  if (sesion.origen !== 'CENTRAL' || sesion.rol !== 'ADMINISTRADOR' || sesion.expiraEn <= ahora) {
+    return fallo(error('SIN_SESION', 'Se requiere una sesión central activa de Administrador'));
+  }
+
+  const fila = await db.credencialesOffline.get(sesion.usuarioId);
+  const dispositivo = await idDispositivoGuardado(db);
+  if (fila === undefined) {
+    await derivarSecreto(
+      pin,
+      'confirmacion-admin-inexistente',
+      opciones.iteraciones ?? ITERACIONES_PIN_OFFLINE,
+    );
+    return fallo(
+      error(
+        'ACCESO_OFFLINE_NO_CONFIGURADO',
+        'Configura primero el PIN de Administrador en este dispositivo',
+      ),
+    );
+  }
+
+  const derivado = await derivarSecreto(pin, fila.sal, fila.iteraciones);
+  const coincide = derivadosIguales(derivado, fila.hash);
+  if (fila.bloqueadoHasta !== null && fila.bloqueadoHasta > ahora) {
+    await auditar(db, {
+      usuarioId: fila.usuarioId,
+      dispositivoId: fila.dispositivoId,
+      accion: 'CONFIRMACION_ADMIN',
+      resultado: 'RECHAZADO',
+      ocurridoEn: ahora,
+      detalle: 'BLOQUEO_VIGENTE',
+    });
+    return fallo({
+      codigo: 'USUARIO_BLOQUEADO',
+      mensaje: 'Demasiados intentos fallidos de PIN',
+      esperaMs: fila.bloqueadoHasta - ahora,
+    });
+  }
+  if (!coincide) {
+    const intentos = fila.intentosFallidos + 1;
+    await db.transaction('rw', [db.credencialesOffline, db.auditoriaAcceso], async () => {
+      await db.credencialesOffline.update(fila.usuarioId, {
+        intentosFallidos: intentos,
+        bloqueadoHasta: intentos >= INTENTOS_PIN_MAXIMOS ? ahora + BLOQUEO_PIN_MS : null,
+      });
+      await auditar(db, {
+        usuarioId: fila.usuarioId,
+        dispositivoId: fila.dispositivoId,
+        accion: 'CONFIRMACION_ADMIN',
+        resultado: 'RECHAZADO',
+        ocurridoEn: ahora,
+        detalle: 'PIN_INVALIDO',
+      });
+    });
+    return fallo(error('PIN_INVALIDO', 'PIN de Administrador incorrecto'));
+  }
+  if (
+    fila.revocadaEn !== null ||
+    fila.validaHasta <= ahora ||
+    dispositivo === null ||
+    fila.dispositivoId !== dispositivo
+  ) {
+    return fallo(
+      error(
+        'CREDENCIAL_OFFLINE_REVOCADA',
+        'El PIN de Administrador no está vigente en este dispositivo',
+      ),
+    );
+  }
+  const perfil = await db.perfilesCentrales.get(fila.usuarioId);
+  if (perfil === undefined || !perfil.activo || perfil.rol !== 'ADMINISTRADOR') {
+    return fallo(error('USUARIO_INACTIVO', 'El perfil Administrador no está habilitado'));
+  }
+
+  await db.transaction('rw', [db.credencialesOffline, db.auditoriaAcceso], async () => {
+    await db.credencialesOffline.update(fila.usuarioId, {
+      intentosFallidos: 0,
+      bloqueadoHasta: null,
+      verificadaEn: ahora,
+    });
+    await auditar(db, {
+      usuarioId: fila.usuarioId,
+      dispositivoId: fila.dispositivoId,
+      accion: 'CONFIRMACION_ADMIN',
+      resultado: 'OK',
+      ocurridoEn: ahora,
+      detalle: null,
+    });
+  });
+  return ok(true);
+}
+
 /** Renueva la ventana local únicamente después de una validación central real. */
 export async function renovarAccesoOffline(
   db: BaseLocal,

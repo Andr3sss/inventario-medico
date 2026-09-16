@@ -26,8 +26,9 @@
     "verificar": "npm run security:secrets && npm run lint && npm run typecheck && npm run test",
     "dev": "npm run dev --workspace @crearcos/web",
     "build": "npm run build --workspace @crearcos/web",
-    "supabase:bootstrap:demo": "node scripts/supabase/bootstrap-demo.mjs",
-    "supabase:bootstrap:production": "node scripts/supabase/bootstrap-production.mjs"
+    "supabase:bootstrap:demo": "node --env-file=.env.local scripts/supabase/bootstrap-demo.mjs",
+    "supabase:bootstrap:uat": "node --env-file=.env.local scripts/supabase/bootstrap-uat.mjs",
+    "supabase:bootstrap:production": "node --env-file=.env.local scripts/supabase/bootstrap-production.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

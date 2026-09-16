@@ -3,7 +3,10 @@ import type { ReactElement } from 'react';
 import { hospitalId as crearHospitalId, type Hospital, type NivelFacturable } from '@crearcos/core';
 import {
   codigoCortoDesde,
+  eliminarHospital,
+  eliminarHospitalOffline,
   guardarHospital,
+  guardarHospitalOffline,
   listarHospitales,
   obtenerHospital,
   uuidV7,
@@ -39,7 +42,7 @@ function textoBusqueda(hospital: Hospital): string {
 }
 
 export function Hospitales(): ReactElement {
-  const { db, sesion, ahora, administracionCentral } = useApp();
+  const { db, sesion, ahora, administracionCentral, centralConfigurado } = useApp();
   const [hospitales, setHospitales] = useState<readonly Hospital[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [cargando, setCargando] = useState(true);
@@ -117,8 +120,10 @@ export function Hospitales(): ReactElement {
         ciudad: ciudad.trim(),
         nivelPorDefecto: nivel,
       };
-      const respuesta =
-        administracionCentral === null
+      const guardarEnCola = centralConfigurado && administracionCentral === null;
+      const respuesta = guardarEnCola
+        ? await guardarHospitalOffline(db, datos, hospitalId, sesion, { ahora })
+        : administracionCentral === null
           ? await guardarHospital(db, datos, sesion)
           : {
               ok: true as const,
@@ -138,14 +143,66 @@ export function Hospitales(): ReactElement {
       setFormularioAbierto(false);
       setMensaje({
         tipo: 'exito',
-        titulo: editando ? 'Institución actualizada' : 'Institución creada',
-        texto: `${respuesta.valor.nombre} quedó disponible para el cierre y facturación de maletas.`,
+        titulo: guardarEnCola
+          ? 'Institución guardada sin conexión'
+          : editando
+            ? 'Institución actualizada'
+            : 'Institución creada',
+        texto: guardarEnCola
+          ? `${respuesta.valor.nombre} ya está disponible en este dispositivo y se sincronizará al recuperar una sesión central.`
+          : `${respuesta.valor.nombre} quedó disponible para el cierre y facturación de maletas.`,
       });
       await cargar();
     } catch (excepcion) {
       setMensajeFormulario({
         tipo: 'error',
         titulo: 'No se pudo guardar la institución',
+        texto: mensajeExcepcion(excepcion),
+      });
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const eliminarActual = async (): Promise<void> => {
+    if (sesion === null || !editando) return;
+    const hospital = hospitales.find((fila) => fila.id === hospitalId);
+    if (hospital === undefined) return;
+    if (
+      !globalThis.confirm(
+        `¿Eliminar ${hospital.nombre} del catálogo de hospitales? Los documentos históricos se conservarán.`,
+      )
+    )
+      return;
+    setProcesando(true);
+    setMensajeFormulario(null);
+    try {
+      const guardarEnCola = centralConfigurado && administracionCentral === null;
+      const respuesta = guardarEnCola
+        ? await eliminarHospitalOffline(db, hospital, sesion, { ahora })
+        : administracionCentral === null
+          ? await eliminarHospital(db, hospital, sesion)
+          : (await administracionCentral.eliminarHospital(hospital),
+            { ok: true as const, valor: true });
+      if (!respuesta.ok) {
+        setMensajeFormulario({
+          tipo: 'error',
+          titulo: 'No se pudo eliminar el hospital',
+          texto: respuesta.error.mensaje,
+        });
+        return;
+      }
+      setFormularioAbierto(false);
+      setMensaje({
+        tipo: 'exito',
+        titulo: guardarEnCola ? 'Eliminación pendiente de sincronización' : 'Hospital eliminado',
+        texto: `${hospital.nombre} ya no aparecerá en nuevas operaciones.`,
+      });
+      await cargar();
+    } catch (excepcion) {
+      setMensajeFormulario({
+        tipo: 'error',
+        titulo: 'No se pudo eliminar el hospital',
         texto: mensajeExcepcion(excepcion),
       });
     } finally {
@@ -428,23 +485,39 @@ export function Hospitales(): ReactElement {
                 </p>
               </div>
             </div>
-            <footer className="drawer__pie">
-              <Boton
-                type="button"
-                variante="secundario"
-                onClick={() => {
-                  setFormularioAbierto(false);
-                }}
-              >
-                Cancelar
-              </Boton>
-              <Boton
-                type="submit"
-                icono="check"
-                disabled={procesando || nombre.trim() === '' || ciudad.trim() === ''}
-              >
-                {procesando ? 'Guardando…' : editando ? 'Guardar cambios' : 'Crear hospital'}
-              </Boton>
+            <footer className="drawer__pie drawer__pie--distribuido">
+              {editando ? (
+                <Boton
+                  type="button"
+                  variante="peligro"
+                  disabled={procesando}
+                  onClick={() => {
+                    void eliminarActual();
+                  }}
+                >
+                  Eliminar hospital
+                </Boton>
+              ) : (
+                <span />
+              )}
+              <div>
+                <Boton
+                  type="button"
+                  variante="secundario"
+                  onClick={() => {
+                    setFormularioAbierto(false);
+                  }}
+                >
+                  Cancelar
+                </Boton>
+                <Boton
+                  type="submit"
+                  icono="check"
+                  disabled={procesando || nombre.trim() === '' || ciudad.trim() === ''}
+                >
+                  {procesando ? 'Guardando…' : editando ? 'Guardar cambios' : 'Crear hospital'}
+                </Boton>
+              </div>
             </footer>
           </form>
         </div>

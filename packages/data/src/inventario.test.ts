@@ -2,32 +2,68 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { codigoPieza, sku } from '@crearcos/core';
 import type { BaseLocal } from './db.js';
 import {
+  actualizarPieza,
+  actualizarPiezaOffline,
+  actualizarProducto,
+  crearProductoOffline,
   componentesDeKit,
   contarPiezasPorEstado,
   crearProducto,
+  eliminarPieza,
+  eliminarProducto,
+  eliminarProductoOffline,
   listarPiezas,
   obtenerPieza,
   registrarPieza,
 } from './inventario.js';
-import { baseDePrueba, piezaDe, SESION } from './pruebas/entorno.js';
+import { AZAR_FIJO, baseDePrueba, piezaDe, relojFalso, SESION } from './pruebas/entorno.js';
 
 const ADMIN = { ...SESION, rol: 'ADMINISTRADOR' } as const;
 
 let db: BaseLocal;
 
+function existente<T>(valor: T | undefined): T {
+  expect(valor).toBeDefined();
+  if (valor === undefined) throw new Error('FILA_DE_PRUEBA_NO_ENCONTRADA');
+  return valor;
+}
+
 beforeEach(async () => {
   db = await baseDePrueba();
-  await db.catalogo.put({ sku: 'TIJERA-MAYO-14', nombre: 'Tijera Mayo recta 14 cm', tipo: 'INSTRUMENTAL', costoBase: 4_200 });
-  await db.catalogo.put({ sku: 'KIT-BASICO-CX', nombre: 'Kit basico de cirugia', tipo: 'KIT', costoBase: 15_000 });
+  await db.catalogo.put({
+    sku: 'TIJERA-MAYO-14',
+    nombre: 'Tijera Mayo recta 14 cm',
+    tipo: 'INSTRUMENTAL',
+    costoBase: 4_200,
+  });
+  await db.catalogo.put({
+    sku: 'KIT-BASICO-CX',
+    nombre: 'Kit basico de cirugia',
+    tipo: 'KIT',
+    costoBase: 15_000,
+  });
   await db.piezas.put(piezaDe()); // INS-4471, sku TIJERA-MAYO-14
   await db.piezas.put(
-    piezaDe({ codigo: codigoPieza('INS-9002'), sku: sku('PINZA-KELLY-14'), estado: 'EN_REPROCESAMIENTO' }),
+    piezaDe({
+      codigo: codigoPieza('INS-9002'),
+      sku: sku('PINZA-KELLY-14'),
+      estado: 'EN_REPROCESAMIENTO',
+    }),
   );
   await db.piezas.put(
-    piezaDe({ codigo: codigoPieza('KIT-000104'), sku: sku('KIT-BASICO-CX'), tipo: 'KIT', parentCodigo: null }),
+    piezaDe({
+      codigo: codigoPieza('KIT-000104'),
+      sku: sku('KIT-BASICO-CX'),
+      tipo: 'KIT',
+      parentCodigo: null,
+    }),
   );
   await db.piezas.put(
-    piezaDe({ codigo: codigoPieza('INS-9003'), sku: sku('PINZA-KELLY-14'), parentCodigo: codigoPieza('KIT-000104') }),
+    piezaDe({
+      codigo: codigoPieza('INS-9003'),
+      sku: sku('PINZA-KELLY-14'),
+      parentCodigo: codigoPieza('KIT-000104'),
+    }),
   );
 });
 
@@ -73,7 +109,12 @@ describe('crearProducto', () => {
   it('rechaza a quien no es Administrador', async () => {
     const r = await crearProducto(
       db,
-      { sku: 'SEPARADOR-FARABEUF', nombre: 'Separador Farabeuf', tipo: 'INSTRUMENTAL', costoBase: 3_000 },
+      {
+        sku: 'SEPARADOR-FARABEUF',
+        nombre: 'Separador Farabeuf',
+        tipo: 'INSTRUMENTAL',
+        costoBase: 3_000,
+      },
       SESION,
     );
     expect(r.ok).toBe(false);
@@ -83,11 +124,18 @@ describe('crearProducto', () => {
   it('da de alta un producto nuevo', async () => {
     const r = await crearProducto(
       db,
-      { sku: 'SEPARADOR-FARABEUF', nombre: 'Separador Farabeuf', tipo: 'INSTRUMENTAL', costoBase: 3_000 },
+      {
+        sku: 'SEPARADOR-FARABEUF',
+        nombre: 'Separador Farabeuf',
+        tipo: 'INSTRUMENTAL',
+        costoBase: 3_000,
+      },
       ADMIN,
     );
     expect(r.ok).toBe(true);
-    expect(await db.catalogo.get('SEPARADOR-FARABEUF')).toMatchObject({ nombre: 'Separador Farabeuf' });
+    expect(await db.catalogo.get('SEPARADOR-FARABEUF')).toMatchObject({
+      nombre: 'Separador Farabeuf',
+    });
   });
 
   it('rechaza un sku que ya existe', async () => {
@@ -116,6 +164,65 @@ describe('crearProducto', () => {
     );
     expect(negativo.ok).toBe(false);
     if (!negativo.ok) expect(negativo.error.codigo).toBe('COSTO_INVALIDO');
+  });
+});
+
+describe('CRUD administrativo de productos', () => {
+  it('edita nombre y costo conservando el SKU inmutable', async () => {
+    const producto = existente(await db.catalogo.get('TIJERA-MAYO-14'));
+    const resultado = await actualizarProducto(
+      db,
+      producto,
+      {
+        sku: 'SKU-IGNORADO',
+        nombre: 'Tijera Mayo premium',
+        tipo: 'INSTRUMENTAL',
+        costoBase: 5_500,
+      },
+      ADMIN,
+    );
+
+    expect(resultado).toMatchObject({
+      ok: true,
+      valor: { sku: 'TIJERA-MAYO-14', costoBase: 5_500 },
+    });
+  });
+
+  it('impide borrar un producto con piezas y permite borrar uno sin dependencias', async () => {
+    const ocupado = existente(await db.catalogo.get('TIJERA-MAYO-14'));
+    const rechazado = await eliminarProducto(db, ocupado, ADMIN);
+    expect(rechazado).toMatchObject({ ok: false, error: { codigo: 'PRODUCTO_TIENE_PIEZAS' } });
+
+    const libre = {
+      sku: 'GASA-ESTERIL',
+      nombre: 'Gasa esteril',
+      tipo: 'INSUMO' as const,
+      costoBase: 150,
+    };
+    await db.catalogo.put(libre);
+    await expect(eliminarProducto(db, libre, ADMIN)).resolves.toMatchObject({ ok: true });
+    await expect(db.catalogo.get(libre.sku)).resolves.toBeUndefined();
+  });
+
+  it('encola altas y bajas offline como comandos maestros durables', async () => {
+    const reloj = relojFalso();
+    const creado = await crearProductoOffline(
+      db,
+      { sku: 'GASA-OFFLINE', nombre: 'Gasa offline', tipo: 'INSUMO', costoBase: 175 },
+      ADMIN,
+      { ahora: reloj.ahora, azar: AZAR_FIJO },
+    );
+    expect(creado.ok).toBe(true);
+    if (!creado.ok) return;
+
+    const borrado = await eliminarProductoOffline(db, creado.valor, ADMIN, {
+      ahora: reloj.ahora,
+      azar: AZAR_FIJO,
+    });
+    expect(borrado.ok).toBe(true);
+    expect(
+      (await db.operacionesSync.toArray()).map((operacion) => operacion.maestro?.tipo),
+    ).toEqual(['CREAR_PRODUCTO', 'ELIMINAR_PRODUCTO']);
   });
 });
 
@@ -182,5 +289,59 @@ describe('registrarPieza', () => {
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.codigo).toBe('PADRE_NO_ENCONTRADO');
+  });
+});
+
+describe('CRUD administrativo de piezas', () => {
+  it('edita una pieza disponible y conserva su codigo inmutable', async () => {
+    const pieza = existente(await db.piezas.get(codigoPieza('INS-4471')));
+    const resultado = await actualizarPieza(
+      db,
+      pieza,
+      { codigo: 'OTRO-CODIGO', sku: 'TIJERA-MAYO-14', parentCodigo: 'KIT-000104' },
+      ADMIN,
+    );
+    expect(resultado).toMatchObject({
+      ok: true,
+      valor: { codigo: 'INS-4471', parentCodigo: 'KIT-000104', version: pieza.version + 1 },
+    });
+  });
+
+  it('impide editar o borrar una pieza fuera de bodega central', async () => {
+    const pieza = existente(await db.piezas.get(codigoPieza('INS-9002')));
+    await expect(
+      actualizarPieza(db, pieza, { codigo: pieza.codigo, sku: pieza.sku }, ADMIN),
+    ).resolves.toMatchObject({ ok: false, error: { codigo: 'PIEZA_NO_EDITABLE' } });
+    await expect(eliminarPieza(db, pieza, ADMIN)).resolves.toMatchObject({
+      ok: false,
+      error: { codigo: 'PIEZA_NO_EDITABLE' },
+    });
+  });
+
+  it('encola la edicion offline con version esperada', async () => {
+    const reloj = relojFalso();
+    const pieza = existente(await db.piezas.get(codigoPieza('INS-4471')));
+    await db.replicaCentral.put({
+      clave: 'PIEZA:01994a64-8780-7000-8000-000000000099',
+      entidadTipo: 'PIEZA',
+      entidadId: '01994a64-8780-7000-8000-000000000099',
+      version: 7,
+      eliminado: false,
+      payload: { codigo: pieza.codigo },
+    });
+
+    const resultado = await actualizarPiezaOffline(
+      db,
+      pieza,
+      { codigo: pieza.codigo, sku: pieza.sku, parentCodigo: 'KIT-000104' },
+      ADMIN,
+      { ahora: reloj.ahora, azar: AZAR_FIJO },
+    );
+    expect(resultado.ok).toBe(true);
+    expect((await db.operacionesSync.toArray())[0]?.maestro).toMatchObject({
+      tipo: 'ACTUALIZAR_PIEZA',
+      entidadId: 'INS-4471',
+      payload: { versionEsperada: 7 },
+    });
   });
 });

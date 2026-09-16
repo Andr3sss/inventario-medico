@@ -1,10 +1,11 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
 import { corsHeaders, origenPermitido, responderPreflight } from '../_shared/http.ts';
-import { validarMfaServidor } from '../_shared/auth.ts';
+import { validarPerfilActivoServidor } from '../_shared/auth.ts';
 
 const MAX_BODY_BYTES = 128 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HUMAN_ROLES = new Set([
   'ADMINISTRADOR',
   'AUXILIAR',
@@ -34,28 +35,16 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function authRedirect(supabaseUrl: string): string | null {
-  const configured = Deno.env.get('AUTH_REDIRECT_URL')?.trim();
-  const candidate = configured || 'http://127.0.0.1:5173/actualizar-contrasena';
-  try {
-    const url = new URL(candidate);
-    const localSupabase = /^http:\/\/(127\.0\.0\.1|localhost):54321$/.test(supabaseUrl);
-    const localRedirect =
-      url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname);
-    if (
-      url.username !== '' ||
-      url.password !== '' ||
-      url.pathname !== '/actualizar-contrasena' ||
-      url.search !== '' ||
-      url.hash !== '' ||
-      (url.protocol !== 'https:' && !(localSupabase && localRedirect))
-    ) {
-      return null;
-    }
-    return url.toString();
-  } catch {
-    return null;
-  }
+function contrasenaValida(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length >= 12 &&
+    value.length <= 72 &&
+    /[a-z]/.test(value) &&
+    /[A-Z]/.test(value) &&
+    /[0-9]/.test(value) &&
+    /[^A-Za-z0-9]/.test(value)
+  );
 }
 
 Deno.serve(async (req: Request) => {
@@ -93,13 +82,8 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const actorId = authData.user.id;
-  const mfaError = await validarMfaServidor(
-    userClient,
-    service,
-    actorId,
-    authorization.replace(/^Bearer\s+/i, ''),
-  );
-  if (mfaError !== null) return json(req, 403, { error: mfaError });
+  const perfilError = await validarPerfilActivoServidor(service, actorId);
+  if (perfilError !== null) return json(req, 403, { error: perfilError });
 
   const fail = (error: { message: string; code?: string } | null): Response =>
     json(req, error?.code === '42501' ? 403 : 409, {
@@ -119,14 +103,70 @@ Deno.serve(async (req: Request) => {
     return null;
   };
 
+  const requireAdminPin = async (value: unknown): Promise<Response | null> => {
+    const adminPin = text(value);
+    if (!/^[0-9]{8}$/.test(adminPin)) {
+      return json(req, 400, { error: 'PIN_ADMIN_DEBIL' });
+    }
+    let { data: pinCheck, error: pinError } = await service.rpc('verificar_pin_administrador', {
+      p_actor_id: actorId,
+      p_pin: adminPin,
+    });
+    if (pinError) return fail(pinError);
+    if (record(pinCheck)?.codigo === 'PIN_ADMIN_NO_CONFIGURADO') {
+      const { error: setupError } = await service.rpc('configurar_pin_administrador', {
+        p_actor_id: actorId,
+        p_pin: adminPin,
+      });
+      if (setupError) return fail(setupError);
+      const retry = await service.rpc('verificar_pin_administrador', {
+        p_actor_id: actorId,
+        p_pin: adminPin,
+      });
+      pinCheck = retry.data;
+      pinError = retry.error;
+      if (pinError) return fail(pinError);
+    }
+    const pin = record(pinCheck);
+    return pin?.ok === true
+      ? null
+      : json(req, 403, {
+          error: typeof pin?.codigo === 'string' ? pin.codigo : 'PIN_ADMIN_INVALIDO',
+          esperaSegundos: typeof pin?.esperaSegundos === 'number' ? pin.esperaSegundos : null,
+        });
+  };
+
   if (action === 'LISTAR_USUARIOS') {
     const denied = await requireAdmin();
     if (denied) return denied;
-    const { data, error } = await service
+    const { data: perfiles, error } = await service
       .from('perfiles')
       .select('id,nombre,rol,activo')
+      .is('eliminado_en', null)
       .order('nombre');
-    return error ? fail(error) : json(req, 200, { usuarios: data ?? [] });
+    if (error) return fail(error);
+
+    const correos = new Map<string, string>();
+    let pagina = 1;
+    for (;;) {
+      const { data: auth, error: authError } = await service.auth.admin.listUsers({
+        page: pagina,
+        perPage: 1000,
+      });
+      if (authError) return fail(authError);
+      for (const usuario of auth.users) {
+        if (usuario.email) correos.set(usuario.id, usuario.email.toLowerCase());
+      }
+      if (auth.nextPage === null) break;
+      pagina = auth.nextPage;
+    }
+
+    return json(req, 200, {
+      usuarios: (perfiles ?? []).map((perfil) => ({
+        ...perfil,
+        correo: correos.get(perfil.id) ?? null,
+      })),
+    });
   }
 
   if (action === 'LISTAR_DISPOSITIVOS') {
@@ -137,6 +177,13 @@ Deno.serve(async (req: Request) => {
       .select('id,nombre,plataforma,activo,ultimo_sync_en,retirado_en')
       .order('ultimo_sync_en', { ascending: false, nullsFirst: false });
     return error ? fail(error) : json(req, 200, { dispositivos: data ?? [] });
+  }
+
+  if (action === 'CONFIGURAR_PIN_ADMIN') {
+    const denied = await requireAdmin();
+    if (denied) return denied;
+    const pinDenied = await requireAdminPin(body.pinAdministrador);
+    return pinDenied ?? json(req, 200, { configurado: true });
   }
 
   if (action === 'REVOCAR_DISPOSITIVO') {
@@ -155,18 +202,28 @@ Deno.serve(async (req: Request) => {
   if (action === 'CREAR_USUARIO') {
     const denied = await requireAdmin();
     if (denied) return denied;
+    const pinDenied = await requireAdminPin(body.pinAdministrador);
+    if (pinDenied) return pinDenied;
     const email = text(body.correo).toLowerCase();
     const name = text(body.nombre);
     const role = text(body.rol);
-    const redirectTo = authRedirect(url);
-    if (!email.includes('@') || !name || !HUMAN_ROLES.has(role)) {
+    const password = body.contrasena;
+    if (
+      !EMAIL.test(email) ||
+      email.length > 254 ||
+      !name ||
+      name.length > 160 ||
+      !HUMAN_ROLES.has(role) ||
+      !contrasenaValida(password)
+    ) {
       return json(req, 400, { error: 'USUARIO_INVALIDO' });
     }
-    if (redirectTo === null) return json(req, 503, { error: 'AUTH_REDIRECT_URL_INVALIDA' });
-    const { data: created, error: createError } = await service.auth.admin.inviteUserByEmail(
+    const { data: created, error: createError } = await service.auth.admin.createUser({
       email,
-      { redirectTo, data: { nombre: name } },
-    );
+      password,
+      email_confirm: true,
+      user_metadata: { nombre: name },
+    });
     if (createError || !created.user) return fail(createError);
     const { data: profile, error: profileError } = await service.rpc(
       'provisionar_usuario_por_admin',
@@ -181,10 +238,91 @@ Deno.serve(async (req: Request) => {
       await service.auth.admin.deleteUser(created.user.id);
       return fail(profileError);
     }
-    return json(req, 200, { usuario: profile });
+    return json(req, 200, {
+      usuario: { ...profile, correo: created.user.email?.toLowerCase() ?? email },
+    });
+  }
+
+  if (action === 'EDITAR_USUARIO') {
+    const denied = await requireAdmin();
+    if (denied) return denied;
+    const userId = text(body.usuarioId);
+    const email = text(body.correo).toLowerCase();
+    const name = text(body.nombre);
+    const role = text(body.rol);
+    if (
+      !UUID.test(userId) ||
+      !EMAIL.test(email) ||
+      email.length > 254 ||
+      !name ||
+      name.length > 160 ||
+      !HUMAN_ROLES.has(role)
+    ) {
+      return json(req, 400, { error: 'USUARIO_INVALIDO' });
+    }
+
+    const { data: previousProfile, error: profileReadError } = await service
+      .from('perfiles')
+      .select('id,nombre,rol,activo,eliminado_en')
+      .eq('id', userId)
+      .maybeSingle();
+    if (profileReadError || !previousProfile || previousProfile.eliminado_en !== null) {
+      return fail(profileReadError ?? { message: 'PERFIL_NO_ENCONTRADO', code: 'P0002' });
+    }
+    if (userId === actorId && role !== previousProfile.rol) {
+      return json(req, 409, { error: 'NO_SE_PUEDE_MODIFICAR_PROPIO_ACCESO' });
+    }
+
+    const { data: previousAuth, error: authReadError } =
+      await service.auth.admin.getUserById(userId);
+    if (authReadError || !previousAuth.user.email) return fail(authReadError);
+    const previousEmail = previousAuth.user.email;
+    const previousMetadata = previousAuth.user.user_metadata;
+    const { data: updatedAuth, error: authUpdateError } = await service.auth.admin.updateUserById(
+      userId,
+      {
+        email,
+        user_metadata: { ...previousMetadata, nombre: name },
+      },
+    );
+    if (authUpdateError) return fail(authUpdateError);
+
+    const { data: profile, error: profileError } = await service.rpc('actualizar_perfil', {
+      p_actor_id: actorId,
+      p_usuario_id: userId,
+      p_nombre: name,
+      p_rol: role,
+      p_activo: previousProfile.activo,
+    });
+    if (profileError) {
+      const { error: rollbackError } = await service.auth.admin.updateUserById(userId, {
+        email: previousEmail,
+        user_metadata: previousMetadata,
+      });
+      if (rollbackError) {
+        console.error('No se pudo revertir Auth despues de fallar el perfil', {
+          userId,
+          profileError: profileError.message,
+          rollbackError: rollbackError.message,
+        });
+        return json(req, 500, {
+          error: 'ACTUALIZACION_AUTH_PARCIAL',
+          detalle: 'El correo cambio, pero el perfil no pudo actualizarse. Reintente la edicion.',
+        });
+      }
+      return fail(profileError);
+    }
+    return json(req, 200, {
+      usuario: {
+        ...profile,
+        correo: updatedAuth.user.email?.toLowerCase() ?? email,
+      },
+    });
   }
 
   if (action === 'ACTUALIZAR_USUARIO') {
+    const denied = await requireAdmin();
+    if (denied) return denied;
     const userId = text(body.usuarioId);
     const name = text(body.nombre);
     const role = text(body.rol);
@@ -217,22 +355,97 @@ Deno.serve(async (req: Request) => {
         });
       }
     }
-    return json(req, 200, { usuario: data });
+    const { data: auth } = await service.auth.admin.getUserById(userId);
+    return json(req, 200, {
+      usuario: { ...data, correo: auth.user?.email?.toLowerCase() ?? null },
+    });
   }
 
-  if (action === 'ENVIAR_RECUPERACION') {
+  if (action === 'CAMBIAR_CONTRASENA_USUARIO') {
     const denied = await requireAdmin();
     if (denied) return denied;
     const userId = text(body.usuarioId);
-    const redirectTo = authRedirect(url);
-    if (!UUID.test(userId)) return json(req, 400, { error: 'USUARIO_INVALIDO' });
-    if (redirectTo === null) return json(req, 503, { error: 'AUTH_REDIRECT_URL_INVALIDA' });
-    const { data: userData, error: userError } = await service.auth.admin.getUserById(userId);
-    if (userError || !userData.user.email) return fail(userError);
-    const { error } = await service.auth.resetPasswordForEmail(userData.user.email, {
-      redirectTo,
+    const password = body.contrasena;
+    if (!UUID.test(userId) || !contrasenaValida(password)) {
+      return json(req, 400, { error: 'CAMBIO_CONTRASENA_INVALIDO' });
+    }
+    const pinDenied = await requireAdminPin(body.pinAdministrador);
+    if (pinDenied) return pinDenied;
+
+    const { data: profile, error: profileError } = await service
+      .from('perfiles')
+      .select('id,nombre,rol,activo,eliminado_en')
+      .eq('id', userId)
+      .maybeSingle();
+    if (
+      profileError ||
+      !profile ||
+      profile.eliminado_en !== null ||
+      !HUMAN_ROLES.has(profile.rol)
+    ) {
+      return json(req, 409, { error: 'USUARIO_NO_ADMITE_CONTRASENA' });
+    }
+    const { data: auth, error: authError } = await service.auth.admin.updateUserById(userId, {
+      password,
     });
-    return error ? fail(error) : json(req, 200, { enviado: true });
+    if (authError) return fail(authError);
+    const { error: auditError } = await service.rpc('registrar_cambio_contrasena_admin', {
+      p_actor_id: actorId,
+      p_usuario_id: userId,
+    });
+    if (auditError) {
+      console.error('Contraseña actualizada pero no se pudo completar la revocación', {
+        actorId,
+        userId,
+        error: auditError.message,
+      });
+      return json(req, 500, {
+        error: 'CAMBIO_CONTRASENA_PARCIAL',
+        detalle:
+          'La contraseña cambió, pero no se pudieron revocar todos los accesos offline. Reintente la operación.',
+      });
+    }
+    return json(req, 200, {
+      usuario: { ...profile, correo: auth.user.email?.toLowerCase() ?? null },
+    });
+  }
+
+  if (action === 'ELIMINAR_USUARIO') {
+    const denied = await requireAdmin();
+    if (denied) return denied;
+    const userId = text(body.usuarioId);
+    if (!UUID.test(userId) || text(body.confirmacion) !== 'ELIMINAR') {
+      return json(req, 400, { error: 'CONFIRMACION_ELIMINACION_INVALIDA' });
+    }
+    if (userId === actorId) {
+      return json(req, 409, { error: 'NO_SE_PUEDE_ELIMINAR_PROPIA_CUENTA' });
+    }
+
+    const { data: authAnterior, error: authReadError } =
+      await service.auth.admin.getUserById(userId);
+    if (authReadError && authReadError.status !== 404) return fail(authReadError);
+
+    const { data, error } = await service.rpc('eliminar_perfil_por_admin', {
+      p_actor_id: actorId,
+      p_usuario_id: userId,
+    });
+    if (error) return fail(error);
+
+    if (authAnterior.user) {
+      const { error: deleteError } = await service.auth.admin.deleteUser(userId, false);
+      if (deleteError) {
+        console.error('Perfil anonimizado pero Auth no pudo eliminarse', {
+          userId,
+          error: deleteError.message,
+        });
+        return json(req, 500, {
+          error: 'ELIMINACION_AUTH_PARCIAL',
+          detalle:
+            'El acceso quedo revocado y anonimizado, pero Auth no pudo eliminarse. Reintente la eliminacion.',
+        });
+      }
+    }
+    return json(req, 200, { eliminado: true, resultado: data });
   }
 
   if (action === 'GUARDAR_HOSPITAL') {
@@ -249,6 +462,15 @@ Deno.serve(async (req: Request) => {
     return error ? fail(error) : json(req, 200, data);
   }
 
+  if (action === 'ELIMINAR_HOSPITAL') {
+    const { data, error } = await service.rpc('eliminar_hospital_central', {
+      p_actor_id: actorId,
+      p_hospital_id: text(body.hospitalId),
+      p_version_esperada: typeof body.versionEsperada === 'number' ? body.versionEsperada : null,
+    });
+    return error ? fail(error) : json(req, 200, data);
+  }
+
   if (action === 'CREAR_PRODUCTO') {
     const { data, error } = await service.rpc('crear_producto_central', {
       p_actor_id: actorId,
@@ -257,6 +479,27 @@ Deno.serve(async (req: Request) => {
       p_nombre: text(body.nombre),
       p_tipo: text(body.tipo),
       p_costo_base_centavos: body.costoBaseCentavos,
+    });
+    return error ? fail(error) : json(req, 200, data);
+  }
+
+  if (action === 'ACTUALIZAR_PRODUCTO') {
+    const { data, error } = await service.rpc('actualizar_producto_central', {
+      p_actor_id: actorId,
+      p_sku: text(body.sku),
+      p_nombre: text(body.nombre),
+      p_tipo: text(body.tipo),
+      p_costo_base_centavos: body.costoBaseCentavos,
+      p_version_esperada: typeof body.versionEsperada === 'number' ? body.versionEsperada : null,
+    });
+    return error ? fail(error) : json(req, 200, data);
+  }
+
+  if (action === 'ELIMINAR_PRODUCTO') {
+    const { data, error } = await service.rpc('eliminar_producto_central', {
+      p_actor_id: actorId,
+      p_sku: text(body.sku),
+      p_version_esperada: typeof body.versionEsperada === 'number' ? body.versionEsperada : null,
     });
     return error ? fail(error) : json(req, 200, data);
   }
@@ -281,6 +524,39 @@ Deno.serve(async (req: Request) => {
       p_codigo: text(body.codigo),
       p_sku: text(body.sku),
       p_kit_padre_codigo: text(body.kitPadreCodigo) || null,
+    });
+    return error ? fail(error) : json(req, 200, data);
+  }
+
+  if (action === 'ACTUALIZAR_PIEZA' || action === 'ELIMINAR_PIEZA') {
+    const deviceId = text(body.dispositivoId);
+    if (!UUID.test(deviceId)) return json(req, 400, { error: 'DISPOSITIVO_INVALIDO' });
+    const { error: deviceError } = await service.rpc('registrar_dispositivo', {
+      p_actor_id: actorId,
+      p_dispositivo_id: deviceId,
+      p_nombre: text(body.nombreDispositivo) || 'Navegador web',
+      p_plataforma: 'web',
+      p_clave_publica: null,
+      p_valido_hasta: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      p_metadata: { origen: 'administration' },
+    });
+    if (deviceError) return fail(deviceError);
+    if (action === 'ACTUALIZAR_PIEZA') {
+      const { data, error } = await service.rpc('actualizar_pieza_central', {
+        p_actor_id: actorId,
+        p_dispositivo_id: deviceId,
+        p_codigo: text(body.codigo),
+        p_sku: text(body.sku),
+        p_kit_padre_codigo: text(body.kitPadreCodigo) || null,
+        p_version_esperada: typeof body.versionEsperada === 'number' ? body.versionEsperada : null,
+      });
+      return error ? fail(error) : json(req, 200, data);
+    }
+    const { data, error } = await service.rpc('eliminar_pieza_central', {
+      p_actor_id: actorId,
+      p_dispositivo_id: deviceId,
+      p_codigo: text(body.codigo),
+      p_version_esperada: typeof body.versionEsperada === 'number' ? body.versionEsperada : null,
     });
     return error ? fail(error) : json(req, 200, data);
   }

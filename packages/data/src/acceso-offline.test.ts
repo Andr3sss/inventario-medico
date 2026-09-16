@@ -4,6 +4,7 @@ import {
   BLOQUEO_PIN_MS,
   INTENTOS_PIN_MAXIMOS,
   VIGENCIA_ACCESO_OFFLINE_MS,
+  confirmarPinAdministrador,
   configurarAccesoOffline,
   consolidarRevalidacionCentral,
   iniciarSesionOffline,
@@ -172,6 +173,52 @@ describe('desbloqueo offline', () => {
     expect((await db.credencialesOffline.get(USUARIO_ID))?.motivoRevocacion).toBe(
       'PERFIL_CENTRAL_NO_AUTORIZADO',
     );
+  });
+});
+
+describe('confirmación administrativa por PIN', () => {
+  let sesionAdmin: SesionActiva;
+
+  beforeEach(async () => {
+    sesionAdmin = { ...sesionCentral, rol: 'ADMINISTRADOR', nombre: 'Administradora' };
+    await db.perfilesCentrales.update(USUARIO_ID, {
+      rol: 'ADMINISTRADOR',
+      nombre: 'Administradora',
+    });
+    await configurarAccesoOffline(db, sesionAdmin, PIN, opciones());
+  });
+
+  it('confirma el PIN sin reemplazar la sesión guardada', async () => {
+    await db.meta.put({ clave: 'sesion-activa', valor: sesionAdmin });
+
+    await expect(confirmarPinAdministrador(db, sesionAdmin, PIN, opciones())).resolves.toEqual({
+      ok: true,
+      valor: true,
+    });
+    await expect(db.meta.get('sesion-activa')).resolves.toMatchObject({
+      valor: {
+        usuarioId: USUARIO_ID,
+        origen: 'CENTRAL',
+      },
+    });
+    expect((await listarAuditoriaAcceso(db, USUARIO_ID)).map((fila) => fila.accion)).toContain(
+      'CONFIRMACION_ADMIN',
+    );
+  });
+
+  it('rechaza un PIN incorrecto y no acepta roles no administrativos', async () => {
+    const incorrecto = await confirmarPinAdministrador(
+      db,
+      sesionAdmin,
+      '61582749',
+      opciones(),
+    );
+    expect(incorrecto.ok).toBe(false);
+    if (!incorrecto.ok) expect(incorrecto.error.codigo).toBe('PIN_INVALIDO');
+
+    const auxiliar = await confirmarPinAdministrador(db, sesionCentral, PIN, opciones());
+    expect(auxiliar.ok).toBe(false);
+    if (!auxiliar.ok) expect(auxiliar.error.codigo).toBe('SIN_SESION');
   });
 });
 

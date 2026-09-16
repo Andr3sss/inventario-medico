@@ -39,10 +39,13 @@ export function ConfigurarAccesoOffline(): ReactElement | null {
           <Icono nombre="usuarios" tamano={24} />
         </span>
         <p className="sobrelinea">Protección del dispositivo</p>
-        <h2 id="titulo-configurar-pin">Crea tu PIN offline</h2>
+        <h2 id="titulo-configurar-pin">Configura tu PIN</h2>
         <p>
           Este PIN es distinto de tu contraseña de Supabase y solo funcionará para {sesion.nombre}{' '}
-          en este dispositivo. Su autorización dura siete días y se renueva al sincronizar.
+          en este dispositivo. Su autorización offline dura siete días y se renueva al sincronizar.
+          {sesion.rol === 'ADMINISTRADOR'
+            ? ' El mismo PIN confirmará las altas y los cambios manuales de contraseña.'
+            : ''}
         </p>
 
         <form

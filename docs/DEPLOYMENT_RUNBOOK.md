@@ -29,9 +29,7 @@ productiva. Sus hosts, variables y proyectos Supabase siguen siendo distintos.
    `<proyecto>.pages.dev`. Esperar certificado TLS activo antes de continuar.
 4. En Supabase Auth configurar para cada entorno:
    - Site URL: el `PUBLIC_APP_URL` de ese entorno.
-   - Redirect permitido: exactamente
-     `<PUBLIC_APP_URL>/actualizar-contrasena`.
-   - SMTP, política de contraseña y protección contra filtradas según
+   - Política de contraseña y protección contra filtradas según
      `docs/AUTH_SECURITY_RUNBOOK.md`.
 5. Crear los GitHub Environments `staging` y `production`. En `production`,
    exigir revisores y bloquear el acceso salvo desde etiquetas protegidas.
@@ -45,7 +43,6 @@ Cada GitHub Environment debe contener estas **variables**:
 | -------------------------- | ---------------------------------------------- |
 | `PUBLIC_APP_URL`           | origen HTTPS, sin ruta ni `/` final            |
 | `VITE_SUPABASE_URL`        | origen HTTPS del proyecto Supabase del entorno |
-| `AUTH_REDIRECT_URL`        | `<PUBLIC_APP_URL>/actualizar-contrasena`       |
 | `ALLOWED_ORIGINS`          | sólo `PUBLIC_APP_URL`; sin comodines           |
 | `SUPABASE_PROJECT_ID`      | referencia de 20 letras del proyecto exclusivo |
 | `CLOUDFLARE_PAGES_PROJECT` | nombre del proyecto Pages                      |

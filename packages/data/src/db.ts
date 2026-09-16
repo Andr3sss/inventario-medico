@@ -56,9 +56,26 @@ export interface FilaFallido {
   readonly codigo: string;
   readonly codigoError?: string;
   readonly motivo: string;
-  readonly evento: EventoSincronizable;
+  readonly evento: EventoSincronizable | OperacionAdministrativaFallida;
   readonly registradoEn: number;
 }
+
+/** Evidencia durable de un comando maestro rechazado por el servidor. */
+export interface OperacionAdministrativaFallida {
+  readonly operacionId: string;
+  readonly cuerpo: {
+    readonly tipo: 'GUARDAR_HOSPITAL' | TipoComandoMaestro;
+  };
+}
+
+export type TipoComandoMaestro =
+  | 'ELIMINAR_HOSPITAL'
+  | 'CREAR_PRODUCTO'
+  | 'ACTUALIZAR_PRODUCTO'
+  | 'ELIMINAR_PRODUCTO'
+  | 'REGISTRAR_PIEZA'
+  | 'ACTUALIZAR_PIEZA'
+  | 'ELIMINAR_PIEZA';
 
 /** Conflicto detectado al sincronizar. Lo resuelve la Coordinadora. */
 export interface FilaConflicto {
@@ -124,9 +141,24 @@ export interface FilaOperacionSync {
   readonly secuenciaCliente: string;
   readonly eventoIds: readonly string[];
   readonly eventos: readonly EventoSincronizable[];
-  readonly clase: 'EVENTOS' | 'EMITIR_FACTURA';
+  readonly clase: 'EVENTOS' | 'EMITIR_FACTURA' | 'GUARDAR_HOSPITAL' | 'COMANDO_MAESTRO';
   readonly facturaId: string | null;
   readonly numeroFactura: string | null;
+  /** Payload autosuficiente para reintentar un alta/edicion nacida sin red. */
+  readonly hospital?: {
+    readonly id: string;
+    readonly codigo: string;
+    readonly nombre: string;
+    readonly ciudad: string;
+    readonly nivelPrecio: Hospital['nivelPorDefecto'];
+    readonly versionEsperada: number | null;
+  };
+  readonly maestro?: {
+    readonly tipo: TipoComandoMaestro;
+    readonly payload: Readonly<Record<string, unknown>>;
+    /** Identificador estable para diagnosticar un rechazo sin interpretar el payload. */
+    readonly entidadId: string;
+  };
   /** Momento local en que nacio la operacion; permite detectar colas estancadas. */
   readonly creadoEn: number;
   intentos: number;
@@ -189,6 +221,7 @@ export interface FilaCredencialOffline {
 export type AccionAuditoriaAcceso =
   | 'ENROLAMIENTO_OFFLINE'
   | 'DESBLOQUEO_OFFLINE'
+  | 'CONFIRMACION_ADMIN'
   | 'REVALIDACION_CENTRAL'
   | 'REVOCACION_OFFLINE'
   | 'EXPIRACION_OFFLINE';

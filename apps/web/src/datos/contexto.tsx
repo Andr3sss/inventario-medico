@@ -12,8 +12,7 @@ import { fallo, type Resultado } from '@crearcos/core';
 import {
   cerrarSesion,
   cerrarSesionCentral,
-  actualizarContrasenaCentral,
-  completarMfaCentral,
+  confirmarPinAdministrador,
   configurarAccesoOffline,
   consolidarRevalidacionCentral,
   configuracionSupabaseValida,
@@ -28,13 +27,11 @@ import {
   iniciarSesionOffline,
   iniciarSesion,
   iniciarSesionCentral,
-  prepararMfaCentral,
   renovarAccesoOffline,
   revalidarSesionCentral,
   revocarAccesoOffline,
   sesionActual,
   sincronizar,
-  solicitarRecuperacionCentral,
   validarTokenFreelance,
   validarTokenFreelanceCentral,
   type AdministracionCentral,
@@ -42,7 +39,6 @@ import {
   type ErrorAuth,
   type ErrorFreelance,
   type DiagnosticoSincronizacion,
-  type DesafioMfaCentral,
   type SesionActiva,
 } from '@crearcos/data';
 import { prepararDispositivo } from './arranque.js';
@@ -63,11 +59,6 @@ interface ValorApp {
   readonly centralConfigurado: boolean;
   readonly modoDemoLocal: boolean;
   readonly administracionCentral: AdministracionCentral | null;
-  readonly mfaPendiente: DesafioMfaCentral | null;
-  readonly solicitarRecuperacion: (correo: string) => Promise<void>;
-  readonly actualizarContrasena: (contrasena: string) => Promise<void>;
-  readonly verificarMfa: (codigo: string) => Promise<Resultado<SesionActiva, ErrorAuth>>;
-  readonly cancelarMfa: () => Promise<void>;
   readonly entrar: (
     usuario: string,
     contrasena: string,
@@ -77,6 +68,7 @@ interface ValorApp {
     pin: string,
   ) => Promise<Resultado<SesionActiva, ErrorAuth>>;
   readonly configurarPinOffline: (pin: string) => Promise<Resultado<true, ErrorAuth>>;
+  readonly confirmarPinAdmin: (pin: string) => Promise<Resultado<true, ErrorAuth>>;
   readonly entrarFreelance: (
     token: string,
     nombre: string,
@@ -100,7 +92,6 @@ const configuracionCentral = {
 };
 const centralConfigurado = configuracionSupabaseValida(configuracionCentral);
 const clienteCentral = centralConfigurado ? crearClienteSupabase(configuracionCentral) : null;
-const transporteCentral = clienteCentral === null ? null : crearTransporteSupabase(clienteCentral);
 
 export function ProveedorApp({ children }: { children: ReactNode }): ReactElement {
   const [db, setDb] = useState<BaseLocal | null>(null);
@@ -111,17 +102,29 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
   const [sincronizando, setSincronizando] = useState(false);
   const [requiereConfigurarAccesoOffline, setRequiereConfigurarAccesoOffline] = useState(false);
   const [revalidandoCentral, setRevalidandoCentral] = useState(false);
-  const [mfaPendiente, setMfaPendiente] = useState<{
-    readonly desafio: DesafioMfaCentral;
-    readonly identificador: string;
-  } | null>(null);
   const sincronizacionEnCurso = useRef(false);
+  const cerrarSesionVisual = useCallback((): void => {
+    setSesion(null);
+    setRequiereConfigurarAccesoOffline(false);
+    if (db !== null) void cerrarSesion(db);
+  }, [db]);
+  const invalidarSesionCentral = useCallback((): void => {
+    cerrarSesionVisual();
+    void clienteCentral?.auth.signOut({ scope: 'local' });
+  }, [cerrarSesionVisual]);
+  const transporteCentral = useMemo(
+    () =>
+      clienteCentral === null
+        ? null
+        : crearTransporteSupabase(clienteCentral, invalidarSesionCentral),
+    [invalidarSesionCentral],
+  );
   const administracionCentral = useMemo(
     () =>
-      db === null || clienteCentral === null
+      db === null || clienteCentral === null || sesion?.origen !== 'CENTRAL' || !enLinea
         ? null
-        : crearAdministracionCentral(db, clienteCentral, ahora),
-    [db],
+        : crearAdministracionCentral(db, clienteCentral, ahora, invalidarSesionCentral),
+    [db, enLinea, invalidarSesionCentral, sesion],
   );
 
   useEffect(() => {
@@ -137,15 +140,48 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
       if (cancelado()) return;
       const recuperada = await sesionActual(arranque.db, { ahora });
       if (cancelado()) return;
+      let sesionRecuperada = recuperada.ok ? recuperada.valor : null;
+      if (
+        sesionRecuperada?.origen === 'CENTRAL' &&
+        clienteCentral !== null &&
+        globalThis.navigator.onLine
+      ) {
+        const revalidacion = await revalidarSesionCentral(clienteCentral, sesionRecuperada);
+        if (cancelado()) return;
+        if (revalidacion.estado === 'VALIDA') {
+          sesionRecuperada = await consolidarRevalidacionCentral(
+            arranque.db,
+            sesionRecuperada,
+            revalidacion.perfil,
+            ahora(),
+          );
+        } else if (revalidacion.estado === 'INVALIDA') {
+          if (revalidacion.codigo === 'PERFIL_INACTIVO') {
+            await revocarAccesoOffline(
+              arranque.db,
+              sesionRecuperada.usuarioId,
+              ahora(),
+              revalidacion.motivo,
+            );
+          }
+          await cerrarSesionCentral(arranque.db, clienteCentral);
+          sesionRecuperada = null;
+        } else {
+          // Sin confirmacion del servidor no se concede una sesion central. El
+          // usuario aun puede entrar expresamente con su PIN offline.
+          sesionRecuperada = null;
+        }
+      } else if (sesionRecuperada?.origen === 'CENTRAL') {
+        // Restaurar una sesion central sin JWT validado produciria una interfaz
+        // autenticada que solo puede responder 401.
+        sesionRecuperada = null;
+      }
+      if (cancelado()) return;
       setDb(arranque.db);
       setPersistente(arranque.persistente);
-      setSesion(recuperada.ok ? recuperada.valor : null);
-      if (
-        recuperada.ok &&
-        recuperada.valor.origen === 'CENTRAL' &&
-        recuperada.valor.rol !== 'FREELANCE'
-      ) {
-        const configurado = await hayAccesoOfflineVigente(arranque.db, recuperada.valor, ahora());
+      setSesion(sesionRecuperada);
+      if (sesionRecuperada?.origen === 'CENTRAL' && sesionRecuperada.rol !== 'FREELANCE') {
+        const configurado = await hayAccesoOfflineVigente(arranque.db, sesionRecuperada, ahora());
         if (!cancelado()) setRequiereConfigurarAccesoOffline(!configurado);
       }
     })();
@@ -153,6 +189,16 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
       vigente = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (db === null || clienteCentral === null) return undefined;
+    const { data } = clienteCentral.auth.onAuthStateChange((evento) => {
+      if (evento === 'SIGNED_OUT') cerrarSesionVisual();
+    });
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, [cerrarSesionVisual, db]);
 
   // La sesión visible también caduca mientras la PWA permanece abierta.
   useEffect(() => {
@@ -250,7 +296,7 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
         setSincronizando(false);
       }
     }
-  }, [db, sesion, refrescarDiagnosticoSync]);
+  }, [db, sesion, refrescarDiagnosticoSync, transporteCentral]);
 
   // Reintento oportunista: IndexedDB sigue siendo operativa si no hay red.
   useEffect(() => {
@@ -286,26 +332,12 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
                 esperaMs: null,
               });
       if (resultado.ok) {
-        setMfaPendiente(null);
         setSesion(resultado.valor);
         if (clienteCentral !== null && resultado.valor.rol !== 'FREELANCE') {
           const configurado = await renovarAccesoOffline(db, resultado.valor, ahora(), true);
           setRequiereConfigurarAccesoOffline(!configurado);
         } else {
           setRequiereConfigurarAccesoOffline(false);
-        }
-      } else if (
-        clienteCentral !== null &&
-        ['MFA_REQUERIDA', 'MFA_INSCRIPCION_REQUERIDA'].includes(resultado.error.codigo)
-      ) {
-        try {
-          const desafio = await prepararMfaCentral(
-            clienteCentral,
-            resultado.error.codigo === 'MFA_INSCRIPCION_REQUERIDA',
-          );
-          setMfaPendiente({ desafio, identificador: usuario.trim() });
-        } catch {
-          await clienteCentral.auth.signOut({ scope: 'local' });
         }
       }
       return resultado;
@@ -337,8 +369,36 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
       }
       const resultado = await configurarAccesoOffline(db, sesion, pin, { ahora });
       if (!resultado.ok) return resultado;
+      if (sesion.rol === 'ADMINISTRADOR' && administracionCentral !== null) {
+        try {
+          await administracionCentral.configurarPinAdministrador(pin);
+        } catch (causa) {
+          return fallo<ErrorAuth>({
+            codigo: 'SERVICIO_NO_DISPONIBLE',
+            mensaje:
+              causa instanceof Error
+                ? causa.message
+                : 'No se pudo registrar el PIN administrativo en el servidor',
+            esperaMs: null,
+          });
+        }
+      }
       setRequiereConfigurarAccesoOffline(false);
       return { ok: true, valor: true };
+    },
+    [administracionCentral, db, sesion],
+  );
+
+  const confirmarPinAdmin = useCallback(
+    async (pin: string): Promise<Resultado<true, ErrorAuth>> => {
+      if (db === null || sesion === null) {
+        return fallo<ErrorAuth>({
+          codigo: 'SIN_SESION',
+          mensaje: 'No hay una sesión de Administrador activa',
+          esperaMs: null,
+        });
+      }
+      return confirmarPinAdministrador(db, sesion, pin, { ahora });
     },
     [db, sesion],
   );
@@ -377,9 +437,14 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
             if (!cancelado()) setSesion(actualizada);
             return;
           }
-          if (resultado.codigo === 'PERFIL_INACTIVO') {
-            await revocarAccesoOffline(db, sesion.usuarioId, ahora(), resultado.motivo);
+          // No tener un JWT central es normal tras desbloquear solo con PIN.
+          // La sesión local sigue vigente, pero no obtiene permisos de red.
+          if (resultado.codigo === 'SESION_AUSENTE') return;
+          if (resultado.codigo === 'IDENTIDAD_NO_COINCIDE') {
+            await clienteCentral.auth.signOut({ scope: 'local' });
+            return;
           }
+          await revocarAccesoOffline(db, sesion.usuarioId, ahora(), resultado.motivo);
           try {
             await cerrarSesionCentral(db, clienteCentral);
           } finally {
@@ -438,56 +503,6 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
     }
   }, [db]);
 
-  const solicitarRecuperacion = useCallback(async (correo: string): Promise<void> => {
-    if (clienteCentral === null) throw new Error('Supabase no está configurado');
-    await solicitarRecuperacionCentral(
-      clienteCentral,
-      correo,
-      `${globalThis.location.origin}/actualizar-contrasena`,
-    );
-  }, []);
-
-  const actualizarContrasena = useCallback(async (contrasena: string): Promise<void> => {
-    if (clienteCentral === null) throw new Error('Supabase no está configurado');
-    await actualizarContrasenaCentral(clienteCentral, contrasena);
-  }, []);
-
-  const verificarMfa = useCallback(
-    async (codigo: string): Promise<Resultado<SesionActiva, ErrorAuth>> => {
-      if (db === null || clienteCentral === null || mfaPendiente === null) {
-        return fallo<ErrorAuth>({
-          codigo: 'MFA_REQUERIDA',
-          mensaje: 'El desafío MFA ya no está disponible',
-          esperaMs: null,
-        });
-      }
-      const resultado = await completarMfaCentral(
-        db,
-        clienteCentral,
-        mfaPendiente.desafio,
-        codigo,
-        mfaPendiente.identificador,
-        { ahora },
-      );
-      if (resultado.ok) {
-        setMfaPendiente(null);
-        setSesion(resultado.valor);
-        const configurado = await renovarAccesoOffline(db, resultado.valor, ahora(), true);
-        setRequiereConfigurarAccesoOffline(!configurado);
-      }
-      return resultado;
-    },
-    [db, mfaPendiente],
-  );
-
-  const cancelarMfa = useCallback(async (): Promise<void> => {
-    try {
-      if (clienteCentral !== null) await clienteCentral.auth.signOut({ scope: 'local' });
-    } finally {
-      setMfaPendiente(null);
-    }
-  }, []);
-
   const valor = useMemo<ValorApp | null>(
     () =>
       db === null
@@ -506,14 +521,10 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
             centralConfigurado,
             modoDemoLocal,
             administracionCentral,
-            mfaPendiente: mfaPendiente?.desafio ?? null,
-            solicitarRecuperacion,
-            actualizarContrasena,
-            verificarMfa,
-            cancelarMfa,
             entrar,
             entrarOffline,
             configurarPinOffline,
+            confirmarPinAdmin,
             entrarFreelance,
             validarFreelance,
             salir,
@@ -530,14 +541,10 @@ export function ProveedorApp({ children }: { children: ReactNode }): ReactElemen
       requiereConfigurarAccesoOffline,
       revalidandoCentral,
       administracionCentral,
-      mfaPendiente,
-      solicitarRecuperacion,
-      actualizarContrasena,
-      verificarMfa,
-      cancelarMfa,
       entrar,
       entrarOffline,
       configurarPinOffline,
+      confirmarPinAdmin,
       entrarFreelance,
       validarFreelance,
       salir,

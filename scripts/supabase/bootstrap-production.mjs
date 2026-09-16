@@ -11,28 +11,41 @@ const client = createClient(required('SUPABASE_URL'), required('SUPABASE_SERVICE
 });
 const email = required('PRODUCTION_ADMIN_EMAIL');
 const name = required('PRODUCTION_ADMIN_NAME');
-const redirectTo = required('PRODUCTION_REDIRECT_URL');
+const password = required('PRODUCTION_ADMIN_PASSWORD');
+if (
+  password.length < 12 ||
+  password.length > 72 ||
+  !/[a-z]/.test(password) ||
+  !/[A-Z]/.test(password) ||
+  !/[0-9]/.test(password) ||
+  !/[^A-Za-z0-9]/.test(password)
+) {
+  throw new Error('PRODUCTION_ADMIN_PASSWORD no cumple la política fuerte');
+}
 
-const { data: invited, error: inviteError } = await client.auth.admin.inviteUserByEmail(email, {
-  redirectTo,
+const { data: created, error: createError } = await client.auth.admin.createUser({
+  email,
+  password,
+  email_confirm: true,
+  user_metadata: { nombre: name },
 });
-if (inviteError || !invited.user) throw inviteError ?? new Error('Auth no devolvio usuario');
+if (createError || !created.user) throw createError ?? new Error('Auth no devolvio usuario');
 
 try {
   const { error: profileError } = await client.rpc('provisionar_perfil', {
-    p_usuario_id: invited.user.id,
+    p_usuario_id: created.user.id,
     p_nombre: name,
     p_rol: 'ADMINISTRADOR',
   });
   if (profileError) throw profileError;
   const { data: activation, error: activationError } = await client.rpc('activar_produccion', {
-    p_primer_admin_id: invited.user.id,
+    p_primer_admin_id: created.user.id,
   });
   if (activationError) throw activationError;
   process.stdout.write(
-    `${JSON.stringify({ adminId: invited.user.id, email, activation }, null, 2)}\n`,
+    `${JSON.stringify({ adminId: created.user.id, email, activation }, null, 2)}\n`,
   );
 } catch (error) {
-  await client.auth.admin.deleteUser(invited.user.id);
+  await client.auth.admin.deleteUser(created.user.id);
   throw error;
 }

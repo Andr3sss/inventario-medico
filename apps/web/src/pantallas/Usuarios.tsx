@@ -33,8 +33,19 @@ const ETIQUETA_ROL: Readonly<Record<Rol, string>> = {
   FREELANCE: 'Instrumentista externo',
 };
 
+function contrasenaFuerte(valor: string): boolean {
+  return (
+    valor.length >= 12 &&
+    valor.length <= 72 &&
+    /[a-z]/.test(valor) &&
+    /[A-Z]/.test(valor) &&
+    /[0-9]/.test(valor) &&
+    /[^A-Za-z0-9]/.test(valor)
+  );
+}
+
 export function Usuarios(): ReactElement {
-  const { db, sesion, ahora, administracionCentral } = useApp();
+  const { db, sesion, ahora, administracionCentral, confirmarPinAdmin } = useApp();
   const [usuarios, setUsuarios] = useState<readonly UsuarioResumen[]>([]);
   const [dispositivos, setDispositivos] = useState<readonly DispositivoCentral[]>([]);
   const [busqueda, setBusqueda] = useState('');
@@ -46,7 +57,15 @@ export function Usuarios(): ReactElement {
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoRol, setNuevoRol] = useState<Exclude<Rol, 'SISTEMA' | 'FREELANCE'>>('AUXILIAR');
   const [nuevaContrasena, setNuevaContrasena] = useState('');
+  const [confirmacionNuevaContrasena, setConfirmacionNuevaContrasena] = useState('');
+  const [pinAdminCreacion, setPinAdminCreacion] = useState('');
   const [contrasenaReset, setContrasenaReset] = useState('');
+  const [confirmacionContrasenaReset, setConfirmacionContrasenaReset] = useState('');
+  const [pinAdminReset, setPinAdminReset] = useState('');
+  const [edicionCorreo, setEdicionCorreo] = useState('');
+  const [edicionNombre, setEdicionNombre] = useState('');
+  const [edicionRol, setEdicionRol] = useState<Exclude<Rol, 'SISTEMA' | 'FREELANCE'>>('AUXILIAR');
+  const [confirmacionEliminacion, setConfirmacionEliminacion] = useState('');
   const [mensaje, setMensaje] = useState<{
     tipo: 'exito' | 'error' | 'info';
     titulo: string;
@@ -91,25 +110,61 @@ export function Usuarios(): ReactElement {
   const visibles = useMemo(() => {
     const texto = busqueda.trim().toLocaleLowerCase();
     return usuarios.filter((usuario) =>
-      `${usuario.usuarioId} ${usuario.nombre} ${ETIQUETA_ROL[usuario.rol]}`
+      `${usuario.usuarioId} ${usuario.correo ?? ''} ${usuario.nombre} ${ETIQUETA_ROL[usuario.rol]}`
         .toLocaleLowerCase()
         .includes(texto),
     );
   }, [busqueda, usuarios]);
+
+  const abrirGestion = (usuario: UsuarioResumen): void => {
+    setEditando(usuario);
+    setEdicionCorreo(usuario.correo ?? '');
+    setEdicionNombre(usuario.nombre);
+    setEdicionRol(usuario.rol as Exclude<Rol, 'SISTEMA' | 'FREELANCE'>);
+    setConfirmacionEliminacion('');
+    setContrasenaReset('');
+    setConfirmacionContrasenaReset('');
+    setPinAdminReset('');
+  };
 
   const crear = async (): Promise<void> => {
     if (sesion === null) return;
     if (
       nuevoId.trim() === '' ||
       nuevoNombre.trim() === '' ||
-      (administracionCentral === null && nuevaContrasena === '')
+      nuevaContrasena === '' ||
+      confirmacionNuevaContrasena === '' ||
+      (administracionCentral !== null && pinAdminCreacion.length !== 8)
     ) {
       setMensaje({ tipo: 'error', titulo: 'Completa todos los campos' });
+      return;
+    }
+    if (nuevaContrasena !== confirmacionNuevaContrasena) {
+      setMensaje({ tipo: 'error', titulo: 'Las contraseñas no coinciden' });
+      return;
+    }
+    if (!contrasenaFuerte(nuevaContrasena)) {
+      setMensaje({
+        tipo: 'error',
+        titulo: 'La contraseña no cumple la política',
+        texto: 'Usa entre 12 y 72 caracteres con mayúscula, minúscula, número y símbolo.',
+      });
       return;
     }
     setProcesando(true);
     setMensaje(null);
     try {
+      if (administracionCentral !== null) {
+        const pinConfirmado = await confirmarPinAdmin(pinAdminCreacion);
+        if (!pinConfirmado.ok) {
+          setMensaje({
+            tipo: 'error',
+            titulo: 'PIN de Administrador rechazado',
+            texto: pinConfirmado.error.mensaje,
+          });
+          return;
+        }
+      }
       const respuesta =
         administracionCentral === null
           ? await crearUsuario(
@@ -129,6 +184,8 @@ export function Usuarios(): ReactElement {
                 correo: nuevoId.trim(),
                 nombre: nuevoNombre.trim(),
                 rol: nuevoRol,
+                contrasena: nuevaContrasena,
+                pinAdministrador: pinAdminCreacion,
               }),
             };
       if (!respuesta.ok) {
@@ -143,6 +200,8 @@ export function Usuarios(): ReactElement {
       setNuevoId('');
       setNuevoNombre('');
       setNuevaContrasena('');
+      setConfirmacionNuevaContrasena('');
+      setPinAdminCreacion('');
       setMensaje({
         tipo: 'exito',
         titulo:
@@ -152,7 +211,7 @@ export function Usuarios(): ReactElement {
         texto:
           administracionCentral === null
             ? `${respuesta.valor.nombre} ya puede iniciar sesión localmente.`
-            : `Se envió a ${nuevoId.trim()} una invitación para definir su propia contraseña.`,
+            : `${respuesta.valor.nombre} ya puede iniciar sesión con la contraseña asignada por el Administrador.`,
       });
       await cargar();
     } catch (error) {
@@ -204,22 +263,127 @@ export function Usuarios(): ReactElement {
     }
   };
 
-  const resetear = async (): Promise<void> => {
+  const guardarEdicion = async (): Promise<void> => {
     if (
-      sesion === null ||
+      administracionCentral === null ||
       editando === null ||
-      (administracionCentral === null && contrasenaReset === '')
+      edicionCorreo.trim() === '' ||
+      edicionNombre.trim() === ''
+    ) {
+      setMensaje({ tipo: 'error', titulo: 'Completa el correo y el nombre' });
+      return;
+    }
+    setProcesando(true);
+    setMensaje(null);
+    try {
+      const actualizado = await administracionCentral.editarUsuario(editando, {
+        correo: edicionCorreo.trim(),
+        nombre: edicionNombre.trim(),
+        rol: edicionRol,
+      });
+      setEditando(actualizado);
+      setEdicionCorreo(actualizado.correo ?? '');
+      setEdicionNombre(actualizado.nombre);
+      setEdicionRol(actualizado.rol as Exclude<Rol, 'SISTEMA' | 'FREELANCE'>);
+      setMensaje({
+        tipo: 'exito',
+        titulo: 'Usuario actualizado',
+        texto: 'El nombre, correo y rol quedaron guardados en la cuenta central.',
+      });
+      await cargar();
+    } catch (error) {
+      setMensaje({
+        tipo: 'error',
+        titulo: 'No se pudo actualizar el usuario',
+        texto: mensajeExcepcion(error),
+      });
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const eliminarDefinitivamente = async (): Promise<void> => {
+    if (
+      administracionCentral === null ||
+      editando === null ||
+      confirmacionEliminacion !== 'ELIMINAR'
+    )
+      return;
+    if (
+      !globalThis.confirm(
+        `¿Eliminar definitivamente la cuenta de ${editando.nombre}? Esta acción no se puede deshacer.`,
+      )
     )
       return;
     setProcesando(true);
     setMensaje(null);
     try {
+      const nombre = editando.nombre;
+      await administracionCentral.eliminarUsuario(editando);
+      setEditando(null);
+      setConfirmacionEliminacion('');
+      setMensaje({
+        tipo: 'exito',
+        titulo: 'Cuenta eliminada definitivamente',
+        texto: `${nombre} ya no puede iniciar sesión. El historial operativo quedó anonimizado.`,
+      });
+      await cargar();
+    } catch (error) {
+      setMensaje({
+        tipo: 'error',
+        titulo: 'No se pudo eliminar la cuenta',
+        texto: mensajeExcepcion(error),
+      });
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const resetear = async (): Promise<void> => {
+    if (
+      sesion === null ||
+      editando === null ||
+      contrasenaReset === '' ||
+      confirmacionContrasenaReset === '' ||
+      (administracionCentral !== null && pinAdminReset.length !== 8)
+    )
+      return;
+    if (contrasenaReset !== confirmacionContrasenaReset) {
+      setMensaje({ tipo: 'error', titulo: 'Las contraseñas no coinciden' });
+      return;
+    }
+    if (!contrasenaFuerte(contrasenaReset)) {
+      setMensaje({
+        tipo: 'error',
+        titulo: 'La contraseña no cumple la política',
+        texto: 'Usa entre 12 y 72 caracteres con mayúscula, minúscula, número y símbolo.',
+      });
+      return;
+    }
+    setProcesando(true);
+    setMensaje(null);
+    try {
+      if (administracionCentral !== null) {
+        const pinConfirmado = await confirmarPinAdmin(pinAdminReset);
+        if (!pinConfirmado.ok) {
+          setMensaje({
+            tipo: 'error',
+            titulo: 'PIN de Administrador rechazado',
+            texto: pinConfirmado.error.mensaje,
+          });
+          return;
+        }
+      }
       const respuesta =
         administracionCentral === null
           ? await resetearContrasena(db, editando.usuarioId, contrasenaReset, sesion, { ahora })
           : {
               ok: true as const,
-              valor: await administracionCentral.enviarRecuperacion(editando),
+              valor: await administracionCentral.cambiarContrasena(
+                editando,
+                contrasenaReset,
+                pinAdminReset,
+              ),
             };
       if (!respuesta.ok) {
         setMensaje({
@@ -230,17 +394,16 @@ export function Usuarios(): ReactElement {
         return;
       }
       setContrasenaReset('');
+      setConfirmacionContrasenaReset('');
+      setPinAdminReset('');
       setEditando(respuesta.valor);
       setMensaje({
         tipo: 'exito',
-        titulo:
-          administracionCentral === null
-            ? 'Contraseña restablecida'
-            : 'Correo de recuperación enviado',
+        titulo: 'Contraseña cambiada por el Administrador',
         texto:
           administracionCentral === null
             ? `El bloqueo de ${respuesta.valor.nombre} también fue limpiado.`
-            : `${respuesta.valor.nombre} definirá una nueva contraseña mediante un enlace temporal.`,
+            : `${respuesta.valor.nombre} ya puede ingresar con la nueva contraseña. Sus concesiones offline anteriores fueron revocadas.`,
       });
       await cargar();
     } catch (error) {
@@ -363,7 +526,7 @@ export function Usuarios(): ReactElement {
                     <tr
                       key={usuario.usuarioId}
                       onClick={() => {
-                        setEditando(usuario);
+                        abrirGestion(usuario);
                       }}
                     >
                       <td>
@@ -378,7 +541,18 @@ export function Usuarios(): ReactElement {
                         </span>
                       </td>
                       <td>
-                        <code>{usuario.usuarioId}</code>
+                        {administracionCentral === null ? (
+                          <code>{usuario.usuarioId}</code>
+                        ) : (
+                          <span className="usuario-celda">
+                            <span>
+                              <strong>{usuario.correo ?? 'Sin correo de acceso'}</strong>
+                              <small>
+                                <code>{usuario.usuarioId}</code>
+                              </small>
+                            </span>
+                          </span>
+                        )}
                       </td>
                       <td>{ETIQUETA_ROL[usuario.rol]}</td>
                       <td>
@@ -419,7 +593,7 @@ export function Usuarios(): ReactElement {
                   className="fila-movil"
                   key={usuario.usuarioId}
                   onClick={() => {
-                    setEditando(usuario);
+                    abrirGestion(usuario);
                   }}
                 >
                   <span className="usuario-celda">
@@ -427,7 +601,7 @@ export function Usuarios(): ReactElement {
                     <span>
                       <strong>{usuario.nombre}</strong>
                       <small>
-                        {usuario.usuarioId} · {ETIQUETA_ROL[usuario.rol]}
+                        {usuario.correo ?? usuario.usuarioId} · {ETIQUETA_ROL[usuario.rol]}
                       </small>
                     </span>
                   </span>
@@ -574,16 +748,45 @@ export function Usuarios(): ReactElement {
                   <option value="SUPERVISOR">Supervisor</option>
                 </select>
               </label>
-              {administracionCentral === null && (
+              <label className="campo-ui">
+                <span>Contraseña inicial</span>
+                <input
+                  type="password"
+                  minLength={12}
+                  maxLength={72}
+                  value={nuevaContrasena}
+                  onChange={(evento) => {
+                    setNuevaContrasena(evento.target.value);
+                  }}
+                  autoComplete="new-password"
+                />
+              </label>
+              <label className="campo-ui">
+                <span>Confirmar contraseña inicial</span>
+                <input
+                  type="password"
+                  minLength={12}
+                  maxLength={72}
+                  value={confirmacionNuevaContrasena}
+                  onChange={(evento) => {
+                    setConfirmacionNuevaContrasena(evento.target.value);
+                  }}
+                  autoComplete="new-password"
+                />
+              </label>
+              {administracionCentral !== null && (
                 <label className="campo-ui">
-                  <span>Contraseña inicial</span>
+                  <span>PIN del Administrador</span>
                   <input
                     type="password"
-                    value={nuevaContrasena}
+                    inputMode="numeric"
+                    pattern="[0-9]{8}"
+                    maxLength={8}
+                    value={pinAdminCreacion}
                     onChange={(evento) => {
-                      setNuevaContrasena(evento.target.value);
+                      setPinAdminCreacion(evento.target.value.replace(/\D/g, '').slice(0, 8));
                     }}
-                    autoComplete="new-password"
+                    autoComplete="off"
                   />
                 </label>
               )}
@@ -592,7 +795,7 @@ export function Usuarios(): ReactElement {
                 <p>
                   {administracionCentral === null
                     ? 'Esta credencial se guardará en el dispositivo para permitir ingreso sin conexión.'
-                    : 'Supabase enviará una invitación temporal para que la persona defina su propia contraseña.'}
+                    : 'El Administrador asigna la contraseña inicial. No se enviará ninguna invitación ni correo de recuperación.'}
                 </p>
               </div>
             </div>
@@ -654,7 +857,7 @@ export function Usuarios(): ReactElement {
               <div className="usuario-detalle-real">
                 <Avatar nombre={editando.nombre} />
                 <span>
-                  <code>{editando.usuarioId}</code>
+                  <code>{editando.correo ?? editando.usuarioId}</code>
                   <strong>{ETIQUETA_ROL[editando.rol]}</strong>
                 </span>
                 <Estado tono={editando.activo ? 'exito' : 'neutral'}>
@@ -670,40 +873,130 @@ export function Usuarios(): ReactElement {
                   </p>
                 </div>
               )}
+              {administracionCentral !== null && (
+                <section className="seccion-formulario">
+                  <h3>Datos de la cuenta</h3>
+                  <p>Actualiza la identidad y los permisos utilizados en todos los dispositivos.</p>
+                  <label className="campo-ui">
+                    <span>Correo electrónico</span>
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      maxLength={254}
+                      required
+                      value={edicionCorreo}
+                      onChange={(evento) => {
+                        setEdicionCorreo(evento.target.value);
+                      }}
+                    />
+                  </label>
+                  <label className="campo-ui">
+                    <span>Nombre completo</span>
+                    <input
+                      maxLength={160}
+                      required
+                      value={edicionNombre}
+                      onChange={(evento) => {
+                        setEdicionNombre(evento.target.value);
+                      }}
+                    />
+                  </label>
+                  <label className="campo-ui">
+                    <span>Rol</span>
+                    <select
+                      value={edicionRol}
+                      disabled={editando.usuarioId === sesion?.usuarioId}
+                      onChange={(evento) => {
+                        setEdicionRol(evento.target.value as Exclude<Rol, 'SISTEMA' | 'FREELANCE'>);
+                      }}
+                    >
+                      <option value="ADMINISTRADOR">Administrador</option>
+                      <option value="AUXILIAR">Auxiliar / Instrumentista</option>
+                      <option value="COORDINADORA">Coordinadora</option>
+                      <option value="CONTABLE">Contable</option>
+                      <option value="SUPERVISOR">Supervisor</option>
+                    </select>
+                  </label>
+                  {editando.usuarioId === sesion?.usuarioId && (
+                    <p className="panel__nota">
+                      Puedes cambiar tu nombre o correo, pero no tu propio rol.
+                    </p>
+                  )}
+                  <Boton
+                    icono="check"
+                    disabled={
+                      procesando || edicionCorreo.trim() === '' || edicionNombre.trim() === ''
+                    }
+                    onClick={() => {
+                      void guardarEdicion();
+                    }}
+                  >
+                    Guardar cambios
+                  </Boton>
+                </section>
+              )}
               <section className="seccion-formulario">
-                <h3>
-                  {administracionCentral === null ? 'Restablecer contraseña' : 'Recuperar acceso'}
-                </h3>
+                <h3>Cambiar contraseña manualmente</h3>
                 <p>
                   {administracionCentral === null
                     ? 'Define una nueva contraseña para esta cuenta local.'
-                    : 'Envía un enlace temporal para que la persona defina una nueva contraseña. El administrador nunca la conoce.'}
+                    : 'Solo un Administrador puede asignar la nueva contraseña. La operación exige su PIN y queda auditada.'}
                 </p>
-                {administracionCentral === null && (
+                <label className="campo-ui">
+                  <span>Nueva contraseña</span>
+                  <input
+                    type="password"
+                    minLength={12}
+                    maxLength={72}
+                    value={contrasenaReset}
+                    onChange={(evento) => {
+                      setContrasenaReset(evento.target.value);
+                    }}
+                    autoComplete="new-password"
+                  />
+                </label>
+                <label className="campo-ui">
+                  <span>Confirmar nueva contraseña</span>
+                  <input
+                    type="password"
+                    minLength={12}
+                    maxLength={72}
+                    value={confirmacionContrasenaReset}
+                    onChange={(evento) => {
+                      setConfirmacionContrasenaReset(evento.target.value);
+                    }}
+                    autoComplete="new-password"
+                  />
+                </label>
+                {administracionCentral !== null && (
                   <label className="campo-ui">
-                    <span>Nueva contraseña</span>
+                    <span>PIN del Administrador</span>
                     <input
                       type="password"
-                      value={contrasenaReset}
+                      inputMode="numeric"
+                      pattern="[0-9]{8}"
+                      maxLength={8}
+                      value={pinAdminReset}
                       onChange={(evento) => {
-                        setContrasenaReset(evento.target.value);
+                        setPinAdminReset(evento.target.value.replace(/\D/g, '').slice(0, 8));
                       }}
-                      autoComplete="new-password"
+                      autoComplete="off"
                     />
                   </label>
                 )}
                 <Boton
                   variante="secundario"
                   disabled={
-                    procesando || (administracionCentral === null && contrasenaReset === '')
+                    procesando ||
+                    contrasenaReset === '' ||
+                    confirmacionContrasenaReset === '' ||
+                    (administracionCentral !== null && pinAdminReset.length !== 8)
                   }
                   onClick={() => {
                     void resetear();
                   }}
                 >
-                  {administracionCentral === null
-                    ? 'Restablecer contraseña'
-                    : 'Enviar recuperación'}
+                  Cambiar contraseña
                 </Boton>
               </section>
               <section className="seccion-formulario">
@@ -715,14 +1008,52 @@ export function Usuarios(): ReactElement {
                 </p>
                 <Boton
                   variante={editando.activo ? 'peligro' : 'secundario'}
-                  disabled={procesando}
+                  disabled={procesando || editando.usuarioId === sesion?.usuarioId}
                   onClick={() => {
                     void cambiarEstado(editando);
                   }}
                 >
                   {editando.activo ? 'Desactivar usuario' : 'Activar usuario'}
                 </Boton>
+                {editando.usuarioId === sesion?.usuarioId && (
+                  <p className="panel__nota">
+                    No puedes desactivar la sesión que estás utilizando.
+                  </p>
+                )}
               </section>
+              {administracionCentral !== null && (
+                <section className="seccion-formulario">
+                  <h3>Eliminar definitivamente</h3>
+                  <p>
+                    Elimina el correo, las sesiones y el acceso de Supabase Auth. La trazabilidad
+                    histórica se conserva con el nombre “Usuario eliminado”.
+                  </p>
+                  <label className="campo-ui">
+                    <span>Escribe ELIMINAR para confirmar</span>
+                    <input
+                      value={confirmacionEliminacion}
+                      disabled={editando.usuarioId === sesion?.usuarioId}
+                      onChange={(evento) => {
+                        setConfirmacionEliminacion(evento.target.value);
+                      }}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <Boton
+                    variante="peligro"
+                    disabled={
+                      procesando ||
+                      editando.usuarioId === sesion?.usuarioId ||
+                      confirmacionEliminacion !== 'ELIMINAR'
+                    }
+                    onClick={() => {
+                      void eliminarDefinitivamente();
+                    }}
+                  >
+                    Eliminar cuenta definitivamente
+                  </Boton>
+                </section>
+              )}
             </div>
           </aside>
         </div>

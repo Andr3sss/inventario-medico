@@ -1,142 +1,368 @@
 # Crearcos Inventario Quirúrgico
 
-Aplicación offline-first para el control de instrumental médico y la
-prefacturación por institución hospitalaria. IndexedDB/Dexie mantiene la
-réplica operativa en cada dispositivo y Supabase/PostgreSQL es la fuente
-central autoritativa.
+Aplicación web offline-first para controlar instrumental médico, maletas,
+cirugías, reprocesamiento, precios, facturación, hospitales, usuarios y
+sincronización entre dispositivos. El navegador conserva una réplica operativa
+en IndexedDB/Dexie y Supabase/PostgreSQL mantiene la fuente central autoritativa.
 
-El dominio, las pantallas y la integración central cubren inventario, maletas,
-escaneo, cirugía, reprocesamiento, precios, facturación, conflictos, usuarios,
-hospitales y accesos freelance. La sincronización usa operaciones atómicas,
-HLC, entrega at-least-once, cursor monotónico y detección explícita de
-conflictos físicos.
+Este repositorio contiene el frontend, el dominio, la persistencia local, todas
+las migraciones, las Edge Functions, los datos ficticios reproducibles, las
+pruebas y los runbooks. No se necesita ningún archivo fuera del repositorio para
+compilarlo. Para entrar al entorno compartido sí hace falta una credencial de
+prueba, que el propietario debe entregar fuera de GitHub.
 
-Si es la primera vez que lo levantas, sigue `docs/entorno-y-github.md`. Trae
-la instalacion paso a paso, la configuracion de VS Code y como publicarlo en
-GitHub.
+## Ruta rápida para evaluadores
 
-## Como arrancar
+Esta es la forma recomendada de probar el sistema usando el proyecto Supabase
+compartido ya desplegado. No requiere Docker ni acceso administrativo a
+Supabase.
+
+### 1. Requisitos
+
+- Git 2.40 o posterior.
+- Node.js 22 LTS o posterior, con npm.
+- Chrome, Edge o Firefox actualizado.
+- Una cuenta invitada como colaborador del repositorio si este es privado.
+- Correo y contraseña de un usuario UAT, compartidos por el propietario por un
+  canal seguro. Las contraseñas nunca se guardan en Git.
+
+Comprobar las herramientas:
+
+```powershell
+git --version
+node --version
+npm --version
+```
+
+`node --version` debe comenzar por `v22` o una versión superior.
+
+### 2. Clonar y preparar en Windows PowerShell
+
+```powershell
+git clone https://github.com/Andr3sss/inventario-medico.git
+Set-Location inventario-medico
+git switch main
+Copy-Item .env.example .env.local
+npm ci
+npm run verificar
+npm run build
+```
+
+La plantilla ya contiene la URL y la clave **publicable** del entorno de
+pruebas. La clave publicable está diseñada para ejecutarse en el navegador; no
+es la clave `service_role`. Nunca se debe agregar `SUPABASE_SERVICE_ROLE_KEY`,
+una contraseña o un token personal a un archivo versionado.
+
+### 3. Clonar y preparar en macOS o Linux
 
 ```bash
-npm install
-npx supabase start # requiere Docker para el stack local
-npx supabase db reset
-npx supabase test db
+git clone https://github.com/Andr3sss/inventario-medico.git
+cd inventario-medico
+git switch main
+cp .env.example .env.local
+npm ci
+npm run verificar
 npm run build
-npm run dev         # abre la app en http://localhost:5173
-npm run verificar   # lint + tipos + pruebas
 ```
 
-Configura la URL y la clave publishable según
-[`docs/SUPABASE_SETUP.md`](docs/SUPABASE_SETUP.md). El demo local y la carga
-demo central son explícitos; una base vacía nunca se siembra automáticamente
-en producción y no existe una contraseña compartida compilada en la app.
+### 4. Ejecutar
 
-Comandos sueltos:
-
-| Comando                 | Que hace                                  |
-| ----------------------- | ----------------------------------------- |
-| `npm run typecheck`     | Compila con TypeScript en modo estricto   |
-| `npm run test`          | Corre las pruebas del dominio y los datos |
-| `npm run test:watch`    | Las mismas pruebas en modo continuo       |
-| `npm run lint`          | ESLint con reglas de tipos                |
-| `npm run format`        | Prettier sobre todo el repositorio        |
-| `npm run seed [numero]` | Regenera el inventario de prueba          |
-
-## Estructura
-
-```
-packages/core/     dominio puro, sin dependencias de navegador
-  comun/             Resultado, tipos marcados, dinero en centavos, paginacion
-  estados/           maquina de estados de la pieza
-  maletas/           maquina de estados de la maleta como entidad propia
-  facturacion/       Factura (borrador -> emitida) y su guardia de aprobacion
-  eventos/           tipos de evento y reloj logico hibrido
-  precios/           matriz de 4 niveles y precios aleatorios
-  contratos/         validacion de frontera con Zod
-packages/data/     persistencia local y sincronizacion (offline-first)
-  db.ts              esquema Dexie sobre IndexedDB
-  escaneo.ts         transaccion atomica del escaneo (nucleo reutilizable)
-  maletas.ts         crear/escanear/confirmar salida/cerrar/cancelar maleta
-  facturacion.ts     cierre de maleta -> borrador de factura -> emision
-  reprocesamiento.ts listar y cerrar el ciclo de reesterilizacion
-  conflictos.ts      listar y resolver conflictos de sincronizacion
-  inventario.ts      busqueda, filtro y paginacion del inventario
-  trazabilidad.ts    historial ordenado de una pieza
-  usuarios.ts        alta/baja/reset, autoservicio del Administrador
-  hospitales.ts      catalogo de instituciones
-  sync.ts            motor de sincronizacion y reconciliacion
-  reloj.ts           HLC persistido
-apps/web/          la aplicacion
-  estilos/           tokens y hoja base
-  datos/             arranque del dispositivo y contexto de sesion
-  componentes/       marco, etiqueta de bandeja, estado de sincronizacion
-  pantallas/         ingreso, áreas y flujos operativos conectados a data
-seeds/             generador determinista del inventario, usuarios y hospitales de prueba
-docs/              decisiones de arquitectura y el contrato con el frontend
-supabase/          migraciones, pruebas PostgreSQL y Edge Functions
+```powershell
+npm run dev
 ```
 
-La regla de dependencias es una sola: `core` no importa nada de la capa de
-datos ni de la interfaz. Las flechas apuntan siempre hacia adentro. Cuando se
-agregue Dexie o React, el dominio no se entera.
+Abrir <http://localhost:5173>. Para detener el servidor, volver a la terminal y
+presionar `Ctrl+C`.
 
-## Lo que ya funciona
+Iniciar sesión con la credencial UAT entregada por el propietario. El rol del
+usuario determina las pantallas y operaciones disponibles. Si el navegador
+conservaba una versión anterior, cerrar sesión, presionar `Ctrl+Shift+R` y
+volver a entrar.
 
-Dominio y datos (offline-first, corren en el dispositivo):
+## Prueba funcional recomendada
 
-- Las 11 transiciones de la pieza, con guardas de rol, de maleta y de estado.
-- Maleta como entidad propia: crear, escanear armado, confirmar salida
-  (idempotente), escanear uso, cerrar con asignacion de hospital, cancelar.
-- Facturacion: cierre de maleta genera el borrador con el precio ya resuelto
-  por linea; emision bloqueada si una excepcion de precio esta pendiente de
-  aprobacion de gerencia; instrumental vuelve a reprocesamiento, insumo se
-  consume.
-- Reprocesamiento sin limite de ciclos, y su ingreso manual fuera del cierre
-  de maleta.
-- Conflictos: listar, ver la pieza asociada y resolver manualmente
-  (solo Coordinadora).
-- Inventario con busqueda, filtro por estado/tipo/sku y paginacion; kits con
-  sus componentes hijos.
-- Trazabilidad: historial completo de una pieza ordenado por HLC, nunca por
-  reloj de pared.
-- Usuarios: alta por invitación, baja, recuperación autocontenida, MFA TOTP y
-  retiro de dispositivos, sin exponer credenciales al Administrador.
-- Hospitales: catalogo persistido, sembrado con la semilla de prueba.
-- Alta de catalogo (`crearProducto`) y de piezas fisicas (`registrarPieza`),
-  autoservicio del Administrador (brief §4).
-- Excepciones de precio con aprobacion del Administrador (`excepciones.ts`).
-- Enlace temporal de instrumentista freelance, atado al ciclo de vida de la
-  maleta (`freelance.ts`).
-- Notificaciones agregadas para el Supervisor: conflictos abiertos, maletas
-  demoradas, facturas bloqueadas (`notificaciones.ts`).
-- Lectura abierta de usuarios basicos (`listarUsuariosBasico`) y conteo de
-  piezas por estado en una sola pasada (`contarPiezasPorEstado`).
-- Congelamiento por conflicto de sincronizacion y resolucion manual.
-- Reloj logico hibrido que no retrocede aunque el celular tenga la hora mal.
-- Matriz de precios con piso de provincia y bloqueo por precio aleatorio.
-- Inventario semilla reproducible con invariantes verificadas.
-- Escaneo atomico: reloj, evento, pieza y cola en una sola transaccion.
-- Guarda contra el rebote del lector HID.
-- Cola de salida con reintento exponencial disperso y cuarentena de rechazos.
-- Sincronizacion idempotente que no pisa escaneos locales sin enviar.
+Usar datos ficticios y un perfil de navegador separado. Antes de desconectar la
+red, cada usuario que deba trabajar offline tiene que iniciar sesión una vez en
+línea y configurar su PIN offline en ese dispositivo.
 
-App:
+### Administrador
 
-- Ingreso con credencial local, bloqueo por intentos y sesion que caduca.
-- Ruteo por rol: el menu y la guardia de ruta leen la misma matriz.
-- Estado de sincronizacion visible en todo momento.
-- Las 8 pantallas de contenido (`Tablero`, `Maletas`, `Cirugia`, `Inventario`,
-  `Reprocesamiento`, `Conflictos`, `Facturacion`, `Usuarios`) consumen
-  exclusivamente funciones de `@crearcos/data` — sin datos de ejemplo.
+1. Entrar en línea como Administrador.
+2. En **Usuarios y accesos**, crear un usuario, editar correo/nombre/rol,
+   cambiar su contraseña mediante el PIN único del Administrador, desactivarlo
+   y eliminar una cuenta de prueba que no sea el último administrador.
+3. En **Hospitales**, crear un hospital, modificar sus datos y eliminarlo.
+4. En **Inventario > Gestionar catálogo**, crear, editar y eliminar un producto
+   sin piezas asociadas.
+5. Registrar una pieza física, editar su SKU o kit padre mientras permanezca en
+   bodega central y eliminarla. El código físico y el SKU del producto son
+   identificadores inmutables.
+6. Comprobar que no sea posible eliminar un producto con piezas activas, una
+   pieza que esté en circulación ni un kit que todavía tenga componentes.
 
-## Operación y entrega
+### Flujo operativo
 
-- Arquitectura y ERD: [`docs/DATABASE_ARCHITECTURE.md`](docs/DATABASE_ARCHITECTURE.md).
-- Protocolo offline/sync: [`docs/SYNC_PROTOCOL.md`](docs/SYNC_PROTOCOL.md).
-- Datos de demostración: [`docs/DEMO_DATA.md`](docs/DEMO_DATA.md).
-- Handoff irreversible: [`docs/PRODUCTION_HANDOFF.md`](docs/PRODUCTION_HANDOFF.md).
+1. Como Auxiliar, preparar una maleta y escanear las piezas durante el armado.
+2. Confirmar su salida y asignación.
+3. Registrar el uso en cirugía y cerrar la maleta con un hospital.
+4. Como responsable de reprocesamiento, completar el ciclo de esterilización.
+5. Como Contable, revisar el borrador y la matriz de precios.
+6. Como Administrador, resolver una excepción de precio si existe.
+7. Emitir la factura cuando no queden bloqueos.
 
-Antes de operar con datos reales aún corresponde validar en campo la lectura
-del QR de fábrica y la resistencia del marcado físico al autoclave. Son pruebas
-operativas; no se sustituyen con cambios de software.
+### Prueba offline y sincronización
+
+1. En línea, esperar a que el indicador muestre cero operaciones pendientes.
+2. Abrir DevTools con `F12`, pestaña **Network**, y seleccionar **Offline**.
+3. Crear o editar datos permitidos para el rol: por ejemplo un hospital, un
+   producto o una pieza con una sesión Administrador habilitada offline.
+4. Recargar la página y confirmar que la operación local sigue visible.
+5. Volver a **No throttling** y pulsar sincronizar.
+6. Esperar cero pendientes y verificar el cambio desde otro navegador o
+   computador.
+7. Si existe un conflicto, revisarlo con Coordinadora y confirmar que ambos
+   dispositivos converjan después de resolverlo.
+
+El diagnóstico descargable de sincronización no contiene contraseñas. Si una
+prueba falla, adjuntarlo junto con la hora aproximada y la acción ejecutada.
+
+## Comandos habituales
+
+| Comando                          | Resultado                                                 |
+| -------------------------------- | --------------------------------------------------------- |
+| `npm ci`                         | Instala exactamente las versiones de `package-lock.json`. |
+| `npm run dev`                    | Inicia Vite en `http://localhost:5173`.                   |
+| `npm run build`                  | Genera el frontend de producción en `apps/web/dist`.      |
+| `npm run verificar`              | Ejecuta secretos, ESLint, tipos y pruebas automáticas.    |
+| `npm run test`                   | Ejecuta las pruebas TypeScript y de scripts.              |
+| `npm run typecheck`              | Comprueba TypeScript estricto.                            |
+| `npm run lint`                   | Ejecuta ESLint.                                           |
+| `npm run security:secrets`       | Busca secretos privilegiados versionados.                 |
+| `npm run format`                 | Aplica Prettier al repositorio.                           |
+| `npm run supabase:bootstrap:uat` | Carga identidades y maestros UAT explícitos.              |
+
+Para previsualizar exactamente el resultado compilado:
+
+```powershell
+npm run build
+npm run preview --workspace @crearcos/web
+```
+
+Abrir la URL que Vite muestre en la terminal.
+
+## Variables de entorno
+
+Vite lee el archivo `.env.local` de la **raíz** del repositorio. Este archivo
+está ignorado por Git. Para el entorno compartido basta con:
+
+```dotenv
+VITE_SUPABASE_URL=https://agcexgfniwrfmozwuuxw.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_5fuW7WApJgTzcW0PGEEOdQ_4nhmNajx
+VITE_ENABLE_LOCAL_DEMO=false
+VITE_LOCAL_DEMO_PASSWORD=
+```
+
+Reglas importantes:
+
+- La URL debe ser la base `https://PROJECT_REF.supabase.co`, sin `/rest/v1`.
+- Sólo la clave publicable puede comenzar por `VITE_`.
+- `SUPABASE_SERVICE_ROLE_KEY` es un secreto de operador y jamás llega al
+  frontend.
+- Reiniciar `npm run dev` después de cambiar `.env.local`.
+- El modo demo local es aislado y permanece desactivado al usar Supabase.
+
+## Crear un Supabase independiente
+
+Esta sección sólo corresponde al propietario técnico que quiera reproducir el
+backend completo en otro proyecto. Los evaluadores normales deben usar la ruta
+rápida anterior.
+
+### Proyecto alojado
+
+1. Crear un proyecto vacío en Supabase y copiar su `PROJECT_REF`.
+2. Autenticar y enlazar la CLI:
+
+```powershell
+npx supabase login
+npx supabase link --project-ref PROJECT_REF
+npx supabase migration list --linked
+npx supabase db push --dry-run --linked
+npx supabase db push --linked
+```
+
+3. Desplegar las funciones. La autenticación real se valida dentro de cada
+   handler mediante `auth.getUser()`; `--no-verify-jwt` evita que el gateway
+   legado rechace las claves publicables modernas antes de llegar al handler.
+
+```powershell
+npx supabase functions deploy sync --project-ref PROJECT_REF --use-api --no-verify-jwt
+npx supabase functions deploy administration --project-ref PROJECT_REF --use-api --no-verify-jwt
+npx supabase functions deploy prepare-production --project-ref PROJECT_REF --use-api --no-verify-jwt
+npx supabase functions deploy freelance-access --project-ref PROJECT_REF --use-api --no-verify-jwt
+npx supabase secrets set ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173" --project-ref PROJECT_REF
+```
+
+4. Copiar `.env.example` a `.env.local` y reemplazar únicamente:
+
+```dotenv
+VITE_SUPABASE_URL=https://PROJECT_REF.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=CLAVE_PUBLICABLE_DEL_PROYECTO
+SUPABASE_URL=https://PROJECT_REF.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=CLAVE_SERVICE_ROLE_SOLO_PARA_EL_OPERADOR
+```
+
+5. Para un entorno ficticio nuevo, completar también una contraseña fuerte y
+   ejecutar el bootstrap una sola vez:
+
+```dotenv
+DEMO_ADMIN_EMAIL=admin@example.invalid
+DEMO_ADMIN_NAME=Administrador Demo
+DEMO_ADMIN_PASSWORD=CAMBIAR_POR_UNA_CLAVE_FUERTE
+```
+
+```powershell
+npm run supabase:bootstrap:demo
+```
+
+6. Para cargar el conjunto UAT después del demo:
+
+```dotenv
+UAT_USER_PASSWORD=UNA_CLAVE_UAT_FUERTE_COMPARTIDA_FUERA_DE_GIT
+```
+
+```powershell
+npm run supabase:bootstrap:uat
+```
+
+La carga UAT es idempotente para sus datos identificables. La `service_role` y
+las contraseñas deben retirarse del computador del evaluador al finalizar.
+
+### Stack Supabase completamente local
+
+Este recorrido requiere Docker Desktop iniciado. No ejecuta nada contra el
+proyecto remoto.
+
+```powershell
+npm ci
+npx supabase start
+npx supabase db reset --local
+npx supabase test db --local
+npx supabase status
+```
+
+Copiar la `API URL` y la `anon key` mostradas por `supabase status` a
+`.env.local` como `VITE_SUPABASE_URL` y
+`VITE_SUPABASE_PUBLISHABLE_KEY`. Luego:
+
+```powershell
+npm run verificar
+$env:CREARCOS_E2E_SUPABASE_LOCAL="true"
+npm run test:e2e:sync
+npm run dev
+```
+
+Detener los contenedores cuando termine la prueba:
+
+```powershell
+npx supabase stop
+```
+
+## Acceso de colaboradores en GitHub
+
+Para un repositorio privado, invitar a los jefes como colaboradores es más
+práctico que duplicar el proyecto: todos descargan el mismo historial, commit y
+documentación, y el propietario conserva el control de acceso.
+
+El propietario debe abrir el repositorio en GitHub y seguir:
+
+1. **Settings**.
+2. **Collaborators and teams** o **Collaborators**.
+3. **Add people**.
+4. Introducir el usuario o correo GitHub de cada evaluador.
+5. Conceder permiso **Read** si sólo probarán; usar **Write** únicamente si
+   deben subir correcciones.
+6. Cada persona debe aceptar la invitación antes de ejecutar `git clone`.
+
+Si Git solicita autenticación al clonar, usar Git Credential Manager o:
+
+```powershell
+gh auth login
+gh repo clone Andr3sss/inventario-medico
+Set-Location inventario-medico
+```
+
+No se deben compartir tokens personales de GitHub entre evaluadores.
+
+## Arquitectura del repositorio
+
+```text
+apps/web/             React, rutas, pantallas, PWA y estilos
+packages/core/        dominio puro, estados, roles, precios y contratos
+packages/data/        IndexedDB, servicios, autenticación y sincronización
+seeds/                generador determinista de datos ficticios
+supabase/migrations/  esquema y cambios PostgreSQL reproducibles
+supabase/functions/   Edge Functions protegidas
+supabase/tests/       pruebas pgTAP de esquema, RLS y privilegios
+scripts/              seguridad, despliegue, smoke y bootstrap
+docs/                 arquitectura, protocolos y runbooks operativos
+```
+
+Documentación principal:
+
+- [Configuración de Supabase](docs/SUPABASE_SETUP.md)
+- [Arquitectura de base de datos](docs/DATABASE_ARCHITECTURE.md)
+- [Protocolo de sincronización](docs/SYNC_PROTOCOL.md)
+- [Datos de demostración](docs/DEMO_DATA.md)
+- [Seguridad de autenticación](docs/AUTH_SECURITY_RUNBOOK.md)
+- [Acta de pruebas UAT](docs/RELEASE_UAT.md)
+- [Despliegue y rollback](docs/DEPLOYMENT_RUNBOOK.md)
+- [Handoff irreversible a producción](docs/PRODUCTION_HANDOFF.md)
+
+## Seguridad y límites de la entrega
+
+- No existe recuperación de contraseña por enlace. Sólo un Administrador puede
+  asignar manualmente contraseñas, confirmando con su PIN administrativo.
+- MFA está deshabilitado por alcance del proyecto.
+- Las bajas de hospitales, productos y piezas son lógicas en PostgreSQL para
+  preservar auditoría, facturas e historial; desaparecen de las réplicas
+  operativas.
+- RLS está habilitado y forzado. El navegador no puede ejecutar directamente
+  comandos administrativos ni usar `service_role`.
+- El trabajo offline exige enrolamiento previo del dispositivo y caduca según
+  la política local. Al reconectar, la identidad y los permisos se revalidan.
+- Antes de usar datos reales todavía deben validarse en campo la lectura de los
+  QR y la resistencia del marcado al autoclave. Son validaciones operativas, no
+  defectos funcionales del software.
+
+## Solución rápida de problemas
+
+### `401 Unauthorized`
+
+Cerrar sesión, recargar con `Ctrl+Shift+R` e iniciar sesión nuevamente. Revisar
+que la URL no termine en `/rest/v1` y que se use la clave publicable correcta.
+
+### `ERR_INTERNET_DISCONNECTED`
+
+Es esperado mientras DevTools está en **Offline**. La operación debe permanecer
+en la cola local y enviarse al volver a **No throttling**.
+
+### El puerto 5173 está ocupado
+
+Cerrar el proceso anterior con `Ctrl+C`. Vite también puede ofrecer el siguiente
+puerto; usar exactamente la URL que muestre la terminal.
+
+### Falló `npm ci`
+
+Confirmar Node 22+, borrar sólo `node_modules` y repetir:
+
+```powershell
+Remove-Item -LiteralPath node_modules -Recurse -Force
+npm ci
+```
+
+No borrar `package-lock.json`: garantiza que todos prueben las mismas versiones.
+
+### Docker no está instalado
+
+Docker sólo es obligatorio para Supabase local y las pruebas PostgreSQL/E2E. La
+ruta rápida contra el entorno compartido funciona sin Docker.

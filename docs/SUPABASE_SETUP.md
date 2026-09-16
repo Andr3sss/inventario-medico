@@ -52,23 +52,22 @@ npx supabase link --project-ref PROJECT_REF
 npx supabase migration list --linked
 npx supabase db push --dry-run
 npx supabase db push
-npx supabase functions deploy sync --use-api
-npx supabase functions deploy administration --use-api
-npx supabase functions deploy prepare-production --use-api
-npx supabase functions deploy freelance-access --use-api
+npx supabase functions deploy sync --use-api --no-verify-jwt
+npx supabase functions deploy administration --use-api --no-verify-jwt
+npx supabase functions deploy prepare-production --use-api --no-verify-jwt
+npx supabase functions deploy freelance-access --use-api --no-verify-jwt
 ```
 
 Revisar la ayuda de la versión instalada antes de automatizar comandos. Las
-funciones `sync`, `administration` y `prepare-production` mantienen la
-verificación JWT de plataforma habilitada. `freelance-access` es la excepción
-intencional declarada en `supabase/config.toml`: recibe un token opaco o una
-sesión freelance y los valida dentro del handler antes de invocar RPC que solo
-puede ejecutar `service_role`. Desactivar `verify_jwt` en cualquier otra
-función requiere diseñar y documentar primero una autenticación equivalente.
+cuatro funciones se despliegan con `verify_jwt = false` porque el gateway
+legado no acepta las claves publicables modernas. Esto no las vuelve públicas:
+`sync`, `administration` y `prepare-production` exigen el bearer token y lo
+validan dentro del handler mediante `auth.getUser()` antes de usar
+`service_role`. `freelance-access` valida su token opaco o sesión freelance
+limitada dentro del handler. No debe retirarse ninguna de esas validaciones.
 
 Configurar el secreto Edge `ALLOWED_ORIGINS` con una lista separada por comas
-de orígenes HTTPS exactos, sin rutas ni comodines, y `AUTH_REDIRECT_URL` con
-la URL completa `/actualizar-contrasena`. `SUPABASE_URL`, `SUPABASE_ANON_KEY` y
+de orígenes HTTPS exactos, sin rutas ni comodines. `SUPABASE_URL`, `SUPABASE_ANON_KEY` y
 `SUPABASE_SERVICE_ROLE_KEY` son secretos suministrados por la plataforma al
 runtime; service role nunca se transforma en una variable `VITE_*`.
 
@@ -87,7 +86,7 @@ VITE_ENABLE_LOCAL_DEMO=false
   `PRODUCTION_*` + `npm run supabase:bootstrap:production`.
 
 No hay contraseña maestra hardcodeada. El primer administrador productivo se
-crea por invitación de Supabase Auth.
+crea mediante el bootstrap operativo y después configura su PIN administrativo.
 
 ### Desbloqueo offline
 
@@ -96,8 +95,9 @@ la PWA deriva y guarda un PIN únicamente en IndexedDB, ligado al usuario y al
 UUID del dispositivo. Al reconectar usa `auth.getUser()` y una lectura RLS de
 `perfiles` para renovar siete días o revocar. El registro existente en
 `dispositivo_usuarios` continúa siendo el control central y se renueva mediante
-la Edge Function `sync`; nunca se almacena el PIN en PostgreSQL ni en metadatos
-de Auth.
+la Edge Function `sync`. El derivado de acceso offline permanece en IndexedDB;
+para confirmar cambios administrativos de contraseña existe además un hash
+independiente y limitado por intentos en el esquema privado de PostgreSQL.
 
 En staging deben comprobarse al menos: sesión central vencida seguida de acceso
 offline, cinco intentos fallidos, expiración a siete días, perfil desactivado,
@@ -145,9 +145,8 @@ eliminarse hasta observar carga real. Regenerar
 esquema y revisar el diff antes de commit.
 
 Antes de producción, ejecutar y firmar `AUTH_SECURITY_RUNBOOK.md`. **Leaked
-Password Protection**, SMTP, Site URL y redirects son ajustes administrados por
-la plataforma, no migraciones SQL. La configuración reproducible local exige
-12 caracteres y las cuatro clases; las altas centrales son invitaciones y el
-Administrador nunca asigna contraseñas. TOTP es obligatorio para
-Administradores y optativo, pero vinculante una vez inscrito, para los demás
-roles.
+Password Protection** y Site URL son ajustes administrados por la plataforma,
+no migraciones SQL. La configuración reproducible local exige entre 12 y 72
+caracteres y las cuatro clases; el Administrador asigna contraseñas iniciales y
+puede reemplazarlas manualmente después de confirmar su PIN. MFA permanece
+deshabilitado para todos los roles por decisión explícita de alcance.

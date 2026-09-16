@@ -56,16 +56,6 @@ export function leerConfiguracionDespliegue(env = process.env) {
     throw new Error('VITE_LOCAL_DEMO_PASSWORD debe estar vacia fuera de desarrollo');
   }
 
-  const redirectAuth = urlHttpsExacta(
-    obligatorio(env, 'AUTH_REDIRECT_URL'),
-    'AUTH_REDIRECT_URL',
-    true,
-  );
-  const redirectEsperado = `${appUrl}/actualizar-contrasena`;
-  if (redirectAuth !== redirectEsperado) {
-    throw new Error(`AUTH_REDIRECT_URL debe ser ${redirectEsperado}`);
-  }
-
   const origenes = obligatorio(env, 'ALLOWED_ORIGINS')
     .split(',')
     .map((valor) => urlHttpsExacta(valor.trim(), 'ALLOWED_ORIGINS'));
@@ -81,7 +71,6 @@ export function leerConfiguracionDespliegue(env = process.env) {
     appUrl,
     supabaseUrl,
     clavePublicable,
-    redirectAuth,
     origenes,
     projectRef,
     cloudflareProject: obligatorio(env, 'CLOUDFLARE_PAGES_PROJECT'),

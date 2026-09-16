@@ -531,6 +531,7 @@ ver mas abajo.
 ```ts
 interface UsuarioResumen {
   usuarioId: string;
+  correo: string | null; // null solo para cuentas demo locales
   nombre: string;
   rol: Rol;
   activo: boolean;
@@ -540,9 +541,15 @@ interface UsuarioResumen {
 
 Con Supabase configurado, la administración usa `AdministracionCentral` y las
 identidades globales de Supabase Auth. La implementación local se conserva
-únicamente para el modo demo aislado. El contrato central no recibe
-contraseñas: `crearUsuario({ correo, nombre, rol })` envía una invitación y
-`enviarRecuperacion(usuario)` envía un enlace temporal. También expone
+únicamente para el modo demo aislado. El contrato central permite al
+Administrador crear la identidad con contraseña inicial y reemplazarla con
+`cambiarContrasena(usuario, contrasena, pinAdministrador)`. El servidor vuelve
+a validar sesión, rol y PIN, aplica la política fuerte, revoca concesiones
+offline y deja auditoría; no existe recuperación pública por correo. El CRUD
+central se completa con `editarUsuario(usuario, { correo, nombre, rol })` y
+`eliminarUsuario(usuario)`. La eliminación retira la identidad de Auth y
+anonimiza el perfil histórico para no romper facturas, eventos ni auditoría;
+la cuenta conectada y el último Administrador activo están protegidos. También expone
 `listarDispositivos()` y `revocarDispositivo(id, motivo)` para retirar equipos
 perdidos sin restaurar automáticamente sus concesiones.
 

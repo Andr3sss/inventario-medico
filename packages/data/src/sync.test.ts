@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { maletaId, type LoteSync } from '@crearcos/core';
+import { hospitalId, maletaId } from '@crearcos/core';
 import type { BaseLocal } from './db.js';
 import { registrarEvento } from './escaneo.js';
-import { retrasoReintento, sincronizar, type RespuestaSync, type Transporte } from './sync.js';
+import { guardarHospitalOffline } from './hospitales.js';
+import { crearProductoOffline } from './inventario.js';
+import {
+  retrasoReintento,
+  sincronizar,
+  type RespuestaSync,
+  type SolicitudSync,
+  type Transporte,
+} from './sync.js';
 import { AZAR_FIJO, CODIGO, SESION, baseDePrueba, piezaDe, relojFalso } from './pruebas/entorno.js';
 
 const MALETA = maletaId('MAL-882');
@@ -19,9 +27,9 @@ const respuestaVacia: RespuestaSync = {
 };
 
 const transporteQue = (
-  responder: (lote: LoteSync) => Promise<RespuestaSync>,
-): Transporte & { lotes: LoteSync[] } => {
-  const lotes: LoteSync[] = [];
+  responder: (lote: SolicitudSync) => Promise<RespuestaSync>,
+): Transporte & { lotes: SolicitudSync[] } => {
+  const lotes: SolicitudSync[] = [];
   return {
     lotes,
     enviar: async (lote) => {
@@ -76,6 +84,75 @@ describe('envio de pendientes', () => {
     expect(await db.outbox.count()).toBe(0);
     expect((await db.eventos.get(id))?.enviado).toBe(1);
     expect((await db.meta.get('cursor-servidor'))?.valor).toBe('cur-1');
+  });
+
+  it('envía y confirma un hospital creado sin conexión', async () => {
+    const admin = { ...SESION, rol: 'ADMINISTRADOR' } as const;
+    const guardado = await guardarHospitalOffline(
+      db,
+      {
+        id: hospitalId('HOSP-OFFLINE'),
+        nombre: 'Hospital Offline',
+        ciudad: 'Cuenca',
+        nivelPorDefecto: 'PROVINCIA',
+      },
+      'HOSP-OFFLINE',
+      admin,
+      { ahora: reloj.ahora, azar: AZAR_FIJO },
+    );
+    expect(guardado.ok).toBe(true);
+    const transporte = transporteQue((lote) =>
+      Promise.resolve({
+        ...respuestaVacia,
+        operaciones: lote.operaciones.map((operacion) => ({
+          operacionId: operacion.operacionId,
+          estado: 'APLICADA' as const,
+        })),
+      }),
+    );
+
+    const resumen = await sincronizar(db, transporte, opcionesSync());
+
+    expect(resumen.estado).toBe('COMPLETADO');
+    expect(transporte.lotes[0]?.operaciones[0]).toMatchObject({
+      tipo: 'GUARDAR_HOSPITAL',
+      eventos: [],
+      hospital: { codigo: 'HOSP-OFFLINE' },
+    });
+    expect(await db.operacionesSync.count()).toBe(0);
+  });
+
+  it('envía y confirma un comando maestro de inventario creado sin conexión', async () => {
+    const admin = { ...SESION, rol: 'ADMINISTRADOR' } as const;
+    const creado = await crearProductoOffline(
+      db,
+      { sku: 'GASA-SYNC', nombre: 'Gasa para sync', tipo: 'INSUMO', costoBase: 250 },
+      admin,
+      { ahora: reloj.ahora, azar: AZAR_FIJO },
+    );
+    expect(creado.ok).toBe(true);
+    const transporte = transporteQue((lote) =>
+      Promise.resolve({
+        ...respuestaVacia,
+        operaciones: lote.operaciones.map((operacion) => ({
+          operacionId: operacion.operacionId,
+          estado: 'APLICADA' as const,
+        })),
+      }),
+    );
+
+    const resumen = await sincronizar(db, transporte, opcionesSync());
+
+    expect(resumen.estado).toBe('COMPLETADO');
+    expect(transporte.lotes[0]?.operaciones[0]).toMatchObject({
+      tipo: 'CREAR_PRODUCTO',
+      eventos: [],
+      maestro: {
+        sku: 'GASA-SYNC',
+        costoBaseCentavos: 250,
+      },
+    });
+    expect(await db.operacionesSync.count()).toBe(0);
   });
 
   it('conserva la cola intacta cuando no hay red', async () => {

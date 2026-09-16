@@ -1,17 +1,3 @@
-interface ClienteMfa {
-  readonly auth: {
-    readonly mfa: {
-      getAuthenticatorAssuranceLevel(jwt?: string): Promise<{
-        readonly data: {
-          readonly currentLevel: string | null;
-          readonly nextLevel: string | null;
-        } | null;
-        readonly error: unknown;
-      }>;
-    };
-  };
-}
-
 interface ClientePerfiles {
   from(tabla: string): {
     select(columnas: string): {
@@ -20,7 +6,7 @@ interface ClientePerfiles {
         valor: string,
       ): {
         maybeSingle(): Promise<{
-          readonly data: { readonly rol?: string; readonly activo?: boolean } | null;
+          readonly data: { readonly activo?: boolean } | null;
           readonly error: unknown;
         }>;
       };
@@ -29,24 +15,19 @@ interface ClientePerfiles {
 }
 
 /**
- * Exige AAL2 a Administradores y a cualquier usuario que ya tenga un factor
- * verificado. La consulta privilegiada solo obtiene rol/estado; nunca acepta
- * esos datos desde el navegador.
+ * Comprueba en el servidor que la identidad autenticada conserva un perfil
+ * activo. La autorización por rol continúa en las RPC y políticas RLS.
  */
-export async function validarMfaServidor(
-  clienteUsuarioEntrada: unknown,
+export async function validarPerfilActivoServidor(
   servicioEntrada: unknown,
   usuarioId: string,
-  jwt: string,
-): Promise<'PERFIL_INACTIVO' | 'MFA_REQUERIDA' | null> {
-  const clienteUsuario = clienteUsuarioEntrada as ClienteMfa;
+): Promise<'PERFIL_INACTIVO' | null> {
   const servicio = servicioEntrada as ClientePerfiles;
-  const [{ data: perfil, error: perfilError }, { data: aal, error: aalError }] = await Promise.all([
-    servicio.from('perfiles').select('rol,activo').eq('id', usuarioId).maybeSingle(),
-    clienteUsuario.auth.mfa.getAuthenticatorAssuranceLevel(jwt),
-  ]);
+  const { data: perfil, error: perfilError } = await servicio
+    .from('perfiles')
+    .select('activo')
+    .eq('id', usuarioId)
+    .maybeSingle();
   if (perfilError || perfil?.activo !== true) return 'PERFIL_INACTIVO';
-  if (aalError || aal === null) return 'MFA_REQUERIDA';
-  const debeElevar = perfil.rol === 'ADMINISTRADOR' || aal.nextLevel === 'aal2';
-  return debeElevar && aal.currentLevel !== 'aal2' ? 'MFA_REQUERIDA' : null;
+  return null;
 }

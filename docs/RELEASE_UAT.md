@@ -23,14 +23,14 @@ repositorio si contiene nombres o datos internos.
 
 ## Recorrido de aceptación
 
-- [ ] Administrador entra con MFA y revisa usuarios/dispositivos.
+- [ ] Administrador entra con correo y contraseña y revisa usuarios/dispositivos.
 - [ ] Auxiliar prepara, opera y cierra una maleta.
 - [ ] Flujo offline conserva operaciones y converge al recuperar red.
 - [ ] Dos dispositivos generan, resuelven y convergen un conflicto.
 - [ ] Freelance sólo accede a la maleta autorizada y el token expira.
 - [ ] Reprocesamiento y liberación respetan estados y trazabilidad.
 - [ ] Contabilidad revisa precios, excepciones y factura.
-- [ ] Recuperación de contraseña usa el host de staging correcto.
+- [ ] Administrador cambia una contraseña con su PIN; otro rol y un PIN erróneo son rechazados.
 - [ ] Instalación/actualización PWA y recarga de rutas profundas funcionan.
 - [ ] No existen defectos críticos o altos abiertos.
 

@@ -24,6 +24,8 @@ export interface ErrorUsuarios {
 /** Nunca incluye hash, sal ni iteraciones: eso no debe salir de `autenticacion.ts`. */
 export interface UsuarioResumen {
   readonly usuarioId: string;
+  /** Solo existe para identidades centrales; las cuentas demo locales usan su id. */
+  readonly correo: string | null;
   readonly nombre: string;
   readonly rol: Rol;
   readonly activo: boolean;
@@ -38,6 +40,7 @@ const aResumen = (fila: {
   bloqueadoHasta: number | null;
 }): UsuarioResumen => ({
   usuarioId: fila.usuarioId,
+  correo: null,
   nombre: fila.nombre,
   rol: fila.rol,
   activo: fila.activo,

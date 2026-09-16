@@ -489,27 +489,36 @@ Esta preparación no declara compatible ningún lector, etiqueta o QR de fábric
 La compatibilidad y la semántica unidad/lote/empaque solo se aceptan mediante el
 protocolo y acta firmada de `docs/PILOTO_HARDWARE.md`.
 
-## 44. Las contraseñas son autocontenidas y MFA eleva la autorización
+## 44. Las contraseñas son administradas manualmente y MFA queda fuera del alcance
 
-El Administrador puede crear y desactivar identidades, pero no asigna ni
-restablece contraseñas centrales. Supabase envía invitaciones y enlaces de
-recuperación exactos; la persona define su secreto y, después de cambiarlo, se
-cierran globalmente sus sesiones. La política reproducible exige 12 caracteres
-con mayúscula, minúscula, número y símbolo. La protección contra contraseñas
-filtradas y el SMTP se aplican en el proyecto alojado y deben quedar evidenciados
-en el runbook.
+El Administrador asigna la contraseña inicial y puede reemplazar manualmente la
+de cualquier rol interactivo. Antes de hacerlo debe confirmar su PIN individual
+de ocho dígitos; el navegador verifica el derivado local y la Edge Function
+vuelve a comprobar el hash privado, la sesión, el perfil activo y el rol. Cinco
+fallos bloquean el PIN durante quince minutos. No existe recuperación pública
+por correo. La política exige entre 12 y 72 caracteres con mayúscula, minúscula,
+número y símbolo, y cada cambio revoca concesiones offline y deja auditoría sin
+registrar el PIN ni la contraseña.
 
-TOTP es obligatorio para Administradores y opcional para los demás roles. Una
-vez verificado un factor, omitirlo deja de ser una opción. La sesión de
-aplicación solo se persiste después de AAL2, las Edge Functions comprueban el
-nivel antes de elevar a `service_role` y RLS repite la defensa para impedir que
-un token AAL1 use directamente la API de datos.
+Por decisión de alcance del 13 de septiembre de 2026, la autenticación
+multifactor no se usa ni se exige a ningún rol. El acceso central se completa
+con correo y contraseña válidos. Esta simplificación no cambia la autorización:
+las Edge Functions comprueban que el perfil siga activo antes de elevar a
+`service_role`, y RLS exige perfil activo y rol permitido en la API de datos.
 
 Desactivar un usuario invalida el perfil y todas sus concesiones offline antes
 de bloquearlo en Auth. Reactivarlo no recupera concesiones antiguas. Retirar un
 dispositivo deshabilita atómicamente el equipo y todos sus vínculos. Esta doble
 revocación es necesaria porque un access token emitido puede sobrevivir hasta
 su expiración, aunque ya no deba autorizar ninguna operación de negocio.
+
+El Administrador también puede editar nombre, correo y rol, y eliminar una
+cuenta definitivamente. El correo se modifica con la API administrativa de
+Auth, nunca desde el navegador con una clave privilegiada. Al eliminar se borra
+la identidad de Auth y sus sesiones, pero no se destruye el perfil referenciado
+por eventos, facturas o maletas: queda inactivo, sin correo y con el nombre
+`Usuario eliminado`. Las réplicas reciben una eliminación de `PERFIL`. No se
+puede eliminar la cuenta conectada ni el último Administrador activo.
 
 ## 45. La promoción usa el mismo commit y entornos aislados
 

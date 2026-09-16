@@ -14,7 +14,7 @@ const obtener = async (ruta, opciones = {}) => {
   return respuesta;
 };
 
-for (const ruta of ['/', '/ingreso', '/actualizar-contrasena']) {
+for (const ruta of ['/', '/ingreso']) {
   const respuesta = await obtener(ruta);
   const html = await respuesta.text();
   if (!html.includes('id="raiz"')) throw new Error(`${ruta}: no devolvio el app shell`);

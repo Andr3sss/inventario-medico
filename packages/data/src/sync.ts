@@ -22,7 +22,13 @@ import {
   type Pieza,
 } from '@crearcos/core';
 import { esquemaLoteSync } from '@crearcos/core';
-import type { BaseLocal, EventoSincronizable, FilaInboxSync, FilaOperacionSync } from './db.js';
+import type {
+  BaseLocal,
+  EventoSincronizable,
+  FilaInboxSync,
+  FilaOperacionSync,
+  TipoComandoMaestro,
+} from './db.js';
 import {
   CLAVE_CURSOR,
   CLAVE_ULTIMA_DESCARGA_EXITOSA,
@@ -89,9 +95,18 @@ export interface OperacionPush {
   readonly operacionId: string;
   readonly secuenciaCliente: string;
   readonly eventos: readonly EventoSincronizable[];
-  readonly tipo?: 'EMITIR_FACTURA';
+  readonly tipo?: 'EMITIR_FACTURA' | 'GUARDAR_HOSPITAL' | TipoComandoMaestro;
   readonly facturaId?: string;
   readonly numeroFactura?: string;
+  readonly hospital?: {
+    readonly id: string;
+    readonly codigo: string;
+    readonly nombre: string;
+    readonly ciudad: string;
+    readonly nivelPrecio: Hospital['nivelPorDefecto'];
+    readonly versionEsperada: number | null;
+  };
+  readonly maestro?: Readonly<Record<string, unknown>>;
 }
 
 export interface SolicitudSync extends LoteSync {
@@ -284,6 +299,12 @@ function aOperacionPush(fila: FilaOperacionSync): OperacionPush {
       numeroFactura: fila.numeroFactura,
     };
   }
+  if (fila.clase === 'GUARDAR_HOSPITAL' && fila.hospital !== undefined) {
+    return { ...base, tipo: 'GUARDAR_HOSPITAL', hospital: fila.hospital };
+  }
+  if (fila.clase === 'COMANDO_MAESTRO' && fila.maestro !== undefined) {
+    return { ...base, tipo: fila.maestro.tipo, maestro: fila.maestro.payload };
+  }
   return base;
 }
 
@@ -362,13 +383,40 @@ async function archivarRechazados(
     async () => {
       for (const rechazo of rechazados) {
         const ids = new Set<string>();
+        let operacion: FilaOperacionSync | undefined;
         if (rechazo.eventoId !== undefined) ids.add(rechazo.eventoId);
         if (rechazo.operacionId !== undefined) {
-          const operacion = await db.operacionesSync
+          operacion = await db.operacionesSync
             .where('operacionId')
             .equals(rechazo.operacionId)
             .first();
           for (const id of operacion?.eventoIds ?? []) ids.add(id);
+        }
+        if (
+          ids.size === 0 &&
+          rechazo.operacionId !== undefined &&
+          (operacion?.clase === 'GUARDAR_HOSPITAL' || operacion?.clase === 'COMANDO_MAESTRO')
+        ) {
+          const entidadId =
+            operacion.clase === 'GUARDAR_HOSPITAL'
+              ? operacion.hospital?.id
+              : operacion.maestro?.entidadId;
+          const tipo =
+            operacion.clase === 'GUARDAR_HOSPITAL' ? 'GUARDAR_HOSPITAL' : operacion.maestro?.tipo;
+          if (entidadId === undefined || tipo === undefined) continue;
+          await db.fallidos.put({
+            eventoId: rechazo.operacionId,
+            operacionId: rechazo.operacionId,
+            codigo: entidadId,
+            ...(rechazo.codigo === undefined ? {} : { codigoError: rechazo.codigo }),
+            motivo: rechazo.motivo,
+            evento: {
+              operacionId: rechazo.operacionId,
+              cuerpo: { tipo },
+            },
+            registradoEn: ahora,
+          });
+          archivados += 1;
         }
         for (const id of ids) {
           const pieza = await db.eventos.get(id);
@@ -463,7 +511,7 @@ async function finalizarOperaciones(db: BaseLocal, respuesta: RespuestaSync): Pr
     for (const fila of await db.operacionesSync.toArray()) {
       if (
         terminales.has(fila.operacionId) ||
-        fila.eventoIds.every((id) => eventosTerminales.has(id))
+        (fila.eventoIds.length > 0 && fila.eventoIds.every((id) => eventosTerminales.has(id)))
       ) {
         if (fila.seq !== undefined) await db.operacionesSync.delete(fila.seq);
       }
@@ -602,7 +650,11 @@ async function proyectarCambio(
     const remota = mapearPieza(fila.payload);
     const codigo = remota?.codigo ?? textoDe(fila.payload, 'codigo');
     if (codigo === null) throw new Error('SNAPSHOT_PIEZA_INVALIDO');
-    if ((await db.outbox.where('codigo').equals(codigo).count()) > 0) {
+    const comandoPiezaPendiente = (await db.operacionesSync.toArray()).some(
+      (operacion) =>
+        operacion.clase === 'COMANDO_MAESTRO' && operacion.maestro?.entidadId === codigo,
+    );
+    if ((await db.outbox.where('codigo').equals(codigo).count()) > 0 || comandoPiezaPendiente) {
       return 'PIEZA_PENDIENTE';
     }
     if (fila.eliminado) {
@@ -636,13 +688,30 @@ async function proyectarCambio(
     }
   } else if (fila.entidadTipo === 'HOSPITAL') {
     const hospital = mapearHospital(fila.payload);
-    if (fila.eliminado) await db.hospitales.delete(crearHospitalId(fila.entidadId));
-    else if (hospital !== null) await db.hospitales.put(hospital);
-    else throw new Error('SNAPSHOT_HOSPITAL_INVALIDO');
+    const cambioLocalPendiente = (await db.operacionesSync.toArray()).some(
+      (operacion) =>
+        (operacion.clase === 'GUARDAR_HOSPITAL' && operacion.hospital?.id === fila.entidadId) ||
+        (operacion.clase === 'COMANDO_MAESTRO' &&
+          operacion.maestro?.tipo === 'ELIMINAR_HOSPITAL' &&
+          operacion.maestro.entidadId === fila.entidadId),
+    );
+    if (!cambioLocalPendiente) {
+      if (fila.eliminado) await db.hospitales.delete(crearHospitalId(fila.entidadId));
+      else if (hospital !== null) await db.hospitales.put(hospital);
+      else throw new Error('SNAPSHOT_HOSPITAL_INVALIDO');
+    }
   } else if (fila.entidadTipo === 'PRODUCTO') {
     const producto = mapearProducto(fila.payload);
-    if (producto !== null) await db.catalogo.put(producto);
-    else if (!fila.eliminado) throw new Error('SNAPSHOT_PRODUCTO_INVALIDO');
+    const sku = producto?.sku ?? textoDe(fila.payload, 'sku');
+    if (sku === null) throw new Error('SNAPSHOT_PRODUCTO_INVALIDO');
+    const cambioLocalPendiente = (await db.operacionesSync.toArray()).some(
+      (operacion) => operacion.clase === 'COMANDO_MAESTRO' && operacion.maestro?.entidadId === sku,
+    );
+    if (!cambioLocalPendiente) {
+      if (fila.eliminado) await db.catalogo.delete(sku);
+      else if (producto !== null) await db.catalogo.put(producto);
+      else throw new Error('SNAPSHOT_PRODUCTO_INVALIDO');
+    }
   } else if (fila.entidadTipo === 'FACTURA') {
     const factura = mapearFactura(fila.payload);
     const emisionPendiente = (await db.operacionesSync.toArray()).some(
@@ -784,7 +853,9 @@ async function proyectarExcepcion(db: BaseLocal, fila: FilaInboxSync): Promise<v
     id: fila.entidadId,
     sku: crearSku(sku),
     hospitalId: crearHospitalId(hospital),
-    valor: centavos(numeroSeguro(payload.valor_centavos)),
+    // PostgreSQL publica `precio_centavos`; `valor_centavos` se conserva solo
+    // para poder leer snapshots de prototipos anteriores.
+    valor: centavos(numeroSeguro(payload.precio_centavos ?? payload.valor_centavos)),
     estado,
     vigenteDesde: cadena(payload.vigente_desde) ?? '',
     vigenteHasta: cadena(payload.vigente_hasta),

@@ -8,14 +8,16 @@ de la segunda categoría se presume completado por una migración.
 
 - Contraseñas centrales de al menos 12 caracteres, con mayúscula, minúscula,
   número y símbolo en la configuración local y en la pantalla de cambio.
-- Alta central por invitación. El Administrador no define ni conoce la
-  contraseña de otra persona.
-- Recuperación por enlace temporal y cierre global de sesiones después del
-  cambio de contraseña.
-- TOTP obligatorio para Administradores. Para los demás roles es opcional;
-  una vez verificado un factor, cada nueva sesión debe elevarse a AAL2.
-- RLS comprueba AAL2 para Administradores y usuarios con factor verificado.
-  Las Edge Functions repiten la comprobación antes de usar `service_role`.
+- Alta central con contraseña inicial asignada por el Administrador.
+- Cambio manual de contraseña exclusivo del Administrador, confirmado tanto
+  localmente como en el servidor mediante su PIN individual de ocho dígitos.
+- Cinco PIN incorrectos bloquean la confirmación durante quince minutos; el
+  cambio revoca concesiones offline y queda auditado sin almacenar secretos.
+- No existe recuperación pública por correo ni rutas de restablecimiento.
+- El acceso central usa correo y contraseña. La autenticación multifactor no
+  forma parte del alcance funcional aprobado.
+- RLS comprueba perfil activo y rol en cada operación. Las Edge Functions
+  vuelven a validar el perfil antes de usar `service_role`.
 - Desactivar un perfil invalida sus concesiones en `dispositivo_usuarios`; la
   Edge Function también bloquea la identidad de Auth. Reactivar nunca restaura
   automáticamente concesiones antiguas.
@@ -39,19 +41,13 @@ Registrar fecha, operador y evidencia para cada paso:
 - [ ] En **Authentication > Password Security**, fijar mínimo 12 y exigir las
       cuatro clases de caracteres. Activar **Leaked Password Protection** si
       el plan lo permite; en caso contrario, registrar la excepción y el riesgo.
-- [ ] Habilitar TOTP. Mantener deshabilitado SMS MFA mientras no exista una
-      decisión de seguridad que lo justifique.
+- [ ] Mantener deshabilitados los proveedores de autenticación multifactor
+      (TOTP, teléfono y WebAuthn) en el proyecto alojado.
 - [ ] Configurar duración absoluta de sesión de 12 horas, inactividad de 1
       hora, JWT de 1 hora y rotación de refresh tokens.
-- [ ] Configurar SMTP propio. Verificar remitente, SPF, DKIM y DMARC; probar
-      invitación, recuperación, expiración y límites de reenvío. El SMTP por
-      defecto de Supabase no es el canal productivo.
 - [ ] Fijar **Site URL** al host HTTPS canónico.
-- [ ] Permitir como redirect exacto el host canónico seguido de
-      `/actualizar-contrasena`. Añadir staging por separado; no usar comodines.
 - [ ] Guardar `ALLOWED_ORIGINS` como lista de orígenes HTTPS exactos, sin ruta
-      ni `/` final, y `AUTH_REDIRECT_URL` como URL completa terminada en
-      `/actualizar-contrasena` en los secretos de Edge Functions.
+      ni `/` final, en los secretos de Edge Functions.
 - [ ] Confirmar que `SUPABASE_SERVICE_ROLE_KEY` existe solo en secretos de
       Edge/CI/operación y que ninguna variable `VITE_*` contiene una clave de
       servidor.
@@ -64,21 +60,21 @@ Registrar fecha, operador y evidencia para cada paso:
 
 | Flujo               | Caso positivo                                       | Caso negativo obligatorio                                      |
 | ------------------- | --------------------------------------------------- | -------------------------------------------------------------- |
-| Invitación          | El enlace permite definir una clave fuerte y entrar | Enlace vencido o redirect distinto no concede sesión           |
-| Recuperación        | El usuario cambia su propia clave y vuelve a entrar | La interfaz no revela si un correo inexistente está registrado |
-| Contraseña          | Una clave conforme se acepta                        | Filtrada, corta o sin una clase se rechaza                     |
-| MFA Administrador   | TOTP eleva a AAL2 y habilita administración         | AAL1 no lee por RLS ni ejecuta funciones privilegiadas         |
-| MFA otros roles     | Sin factor pueden operar; con factor deben elevar   | Un TOTP incorrecto no crea sesión de aplicación                |
+| Alta de usuario     | Admin asigna clave fuerte y la cuenta puede entrar  | Otro rol o PIN incorrecto no crea la identidad                  |
+| Cambio de clave     | Admin cambia la clave de cualquier rol interactivo  | Otro rol, PIN incorrecto o clave débil son rechazados           |
+| Acceso central      | Correo y contraseña válidos crean la sesión         | Perfil inactivo o rol insuficiente no autoriza operaciones     |
 | Desactivación       | Perfil, refresh y concesiones quedan revocados      | Token anterior no sincroniza ni lee datos protegidos           |
+| Edición de usuario  | Nombre, correo y rol cambian en Auth y perfil        | Otro rol no accede; el Admin no cambia su propio rol            |
+| Eliminación         | Auth desaparece y el historial queda anonimizado     | Cuenta propia y último Administrador quedan protegidos          |
 | Dispositivo perdido | Retiro bloquea sync y todas sus concesiones         | Un rol no autorizado no puede retirarlo                        |
 | CORS                | El host exacto recibe cabecera CORS                 | Origen parecido, HTTP remoto o `null` no recibe acceso         |
-| Correo              | Invitación y recuperación llegan y funcionan        | Reenvío abusivo queda limitado y no filtra existencia          |
 
 Tras desactivar una identidad, un access token emitido puede existir hasta su
 expiración. Por eso la prueba debe confirmar que perfil, RLS y Edge niegan
 autorización inmediatamente. El bloqueo de Auth impide nuevos accesos y
-renovaciones; el cierre global posterior al cambio de clave revoca los refresh
-tokens existentes.
+renovaciones. Un cambio manual de contraseña revoca las concesiones offline;
+los access tokens ya emitidos conservan su límite natural y siguen sometidos a
+perfil activo, RLS y validación de Edge.
 
 ## Acta de ejecución
 
@@ -89,7 +85,6 @@ tokens existentes.
 | Fecha y operador                 | Pendiente |
 | Commit desplegado                | Pendiente |
 | Clave expuesta rotada / revocada | Pendiente |
-| SMTP + SPF/DKIM/DMARC            | Pendiente |
 | Leaked Password Protection       | Pendiente |
 | Security Advisor                 | Pendiente |
 | Resultado de la matriz           | Pendiente |

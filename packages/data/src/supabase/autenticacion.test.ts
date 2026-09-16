@@ -1,9 +1,9 @@
 import { dispositivoId, usuarioId } from '@crearcos/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { SesionActiva } from '../autenticacion.js';
+import type { BaseLocal } from '../db.js';
 import {
-  actualizarContrasenaCentral,
-  prepararMfaCentral,
+  iniciarSesionCentral,
   revalidarSesionCentral,
 } from './autenticacion.js';
 import type { ClienteSupabase } from './cliente.js';
@@ -131,54 +131,54 @@ describe('revalidacion de una sesion central', () => {
 });
 
 describe('endurecimiento de credenciales centrales', () => {
-  it('rechaza localmente una contraseña que no cumple la política fuerte', async () => {
-    const updateUser = vi.fn();
-    const cliente = { auth: { updateUser } } as unknown as ClienteSupabase;
-    await expect(actualizarContrasenaCentral(cliente, 'solo-minusculas')).rejects.toThrow(
-      '12 caracteres',
+  it('permite a un Administrador entrar únicamente con correo y contraseña', async () => {
+    const put = vi.fn(() => Promise.resolve());
+    const bulkPut = vi.fn(() => Promise.resolve());
+    const db = {
+      meta: { get: vi.fn(() => Promise.resolve(undefined)), put },
+      perfilesCentrales: { bulkPut },
+      transaction: vi.fn((_modo: string, _tablas: unknown[], operacion: () => Promise<void>) =>
+        operacion(),
+      ),
+    } as unknown as BaseLocal;
+    const signInWithPassword = vi.fn(() =>
+      Promise.resolve({ data: { user: { id: 'admin-1' } }, error: null }),
     );
-    expect(updateUser).not.toHaveBeenCalled();
-  });
-
-  it('actualiza una contraseña fuerte y revoca todas las sesiones', async () => {
-    const updateUser = vi.fn(() => Promise.resolve({ error: null }));
-    const signOut = vi.fn(() => Promise.resolve({ error: null }));
     const cliente = {
       auth: {
-        getUser: vi.fn(() => Promise.resolve({ data: { user: { id: 'u-1' } }, error: null })),
-        updateUser,
-        signOut,
+        signInWithPassword,
+        signOut: vi.fn(),
       },
-    } as unknown as ClienteSupabase;
-    await actualizarContrasenaCentral(cliente, 'Nueva-Clave-2026!');
-    expect(updateUser).toHaveBeenCalledWith({ password: 'Nueva-Clave-2026!' });
-    expect(signOut).toHaveBeenCalledWith({ scope: 'global' });
-  });
-
-  it('reutiliza un TOTP verificado y no crea factores duplicados', async () => {
-    const enroll = vi.fn();
-    const cliente = {
-      auth: {
-        mfa: {
-          listFactors: vi.fn(() =>
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({
+          order: vi.fn(() =>
             Promise.resolve({
-              data: {
-                all: [{ id: 'factor-1', factor_type: 'totp', status: 'verified' }],
-                totp: [{ id: 'factor-1', factor_type: 'totp', status: 'verified' }],
-              },
+              data: [
+                { id: 'admin-1', nombre: 'Administradora UAT', rol: 'ADMINISTRADOR', activo: true },
+              ],
               error: null,
             }),
           ),
-          enroll,
-        },
-      },
+        })),
+      })),
     } as unknown as ClienteSupabase;
-    await expect(prepararMfaCentral(cliente, false)).resolves.toEqual({
-      factorId: 'factor-1',
-      modo: 'VERIFICAR',
-      qr: null,
-      secreto: null,
+
+    const resultado = await iniciarSesionCentral(
+      db,
+      cliente,
+      'admin@crearcos.test',
+      'Clave-Segura-2026!',
+      { ahora: () => 1_700_000_000_000 },
+    );
+
+    expect(resultado).toMatchObject({
+      ok: true,
+      valor: { usuarioId: 'admin-1', rol: 'ADMINISTRADOR', origen: 'CENTRAL' },
     });
-    expect(enroll).not.toHaveBeenCalled();
+    expect(signInWithPassword).toHaveBeenCalledWith({
+      email: 'admin@crearcos.test',
+      password: 'Clave-Segura-2026!',
+    });
   });
+
 });

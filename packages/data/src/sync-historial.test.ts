@@ -136,6 +136,51 @@ describe('proyeccion del historial central', () => {
     expect((await destino.replicaCentral.get(`PRODUCTO:${productoId}`))?.version).toBe(10);
   });
 
+  it('proyecta una excepción con el campo PostgreSQL precio_centavos', async () => {
+    const productoId = '00000000-0000-4000-8000-000000000201';
+    const excepcionId = '00000000-0000-4000-8000-000000000202';
+    const hospitalId = '00000000-0000-4000-8000-000000000203';
+    await destino.replicaCentral.put({
+      clave: `PRODUCTO:${productoId}`,
+      entidadTipo: 'PRODUCTO',
+      entidadId: productoId,
+      version: 1,
+      eliminado: false,
+      payload: { id: productoId, sku: 'PINZA-TEST' },
+    });
+    const cambio: CambioSync = {
+      ordinal: 0,
+      entidadTipo: 'EXCEPCION_PRECIO',
+      entidadId: excepcionId,
+      version: 1,
+      eliminado: false,
+      payload: {
+        id: excepcionId,
+        estado: 'APROBADO',
+        hospital_id: hospitalId,
+        producto_id: productoId,
+        precio_centavos: 1500,
+        vigente_desde: '2026-09-13T00:00:00+00:00',
+        vigente_hasta: '2026-12-31T00:00:00+00:00',
+      },
+    };
+
+    const resumen = await sincronizar(
+      destino,
+      transporteDe(respuestaCon([cambio], '37')),
+      opcionesDestino(),
+    );
+
+    expect(resumen.erroresProyeccion).toBe(0);
+    expect(await destino.excepcionesPrecio.get(excepcionId)).toMatchObject({
+      sku: 'PINZA-TEST',
+      hospitalId,
+      valor: 1500,
+      estado: 'APROBADO',
+    });
+    expect((await destino.inboxSync.get('37:000000'))?.aplicado).toBe(1);
+  });
+
   it('resuelve el codigo de un conflicto central desde el snapshot de la pieza', async () => {
     const piezaId = '00000000-0000-4000-8000-000000000101';
     const idConflicto = '00000000-0000-4000-8000-000000000102';

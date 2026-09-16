@@ -35,13 +35,6 @@ export interface PerfilCentralValidado {
   readonly rol: Exclude<Rol, 'SISTEMA'>;
 }
 
-export interface DesafioMfaCentral {
-  readonly factorId: string;
-  readonly modo: 'INSCRIBIR' | 'VERIFICAR';
-  readonly qr: string | null;
-  readonly secreto: string | null;
-}
-
 export type RevalidacionSesionCentral =
   | { readonly estado: 'VALIDA'; readonly perfil: PerfilCentralValidado }
   | {
@@ -50,52 +43,6 @@ export type RevalidacionSesionCentral =
       readonly motivo: string;
     }
   | { readonly estado: 'NO_DISPONIBLE'; readonly motivo: string };
-
-/**
- * Inicia el flujo autocontenido de recuperación. La respuesta de la interfaz
- * debe ser genérica para no confirmar si el correo existe.
- */
-export async function solicitarRecuperacionCentral(
-  cliente: ClienteSupabase,
-  correo: string,
-  redirectTo: string,
-): Promise<void> {
-  const destino = new URL(redirectTo);
-  if (
-    destino.origin !== globalThis.location.origin ||
-    destino.pathname !== '/actualizar-contrasena' ||
-    destino.search !== '' ||
-    destino.hash !== ''
-  ) {
-    throw new Error('REDIRECCION_RECUPERACION_INVALIDA');
-  }
-  const { error } = await cliente.auth.resetPasswordForEmail(correo.trim().toLowerCase(), {
-    redirectTo: destino.toString(),
-  });
-  if (error) throw error;
-}
-
-export async function actualizarContrasenaCentral(
-  cliente: ClienteSupabase,
-  contrasena: string,
-): Promise<void> {
-  if (
-    contrasena.length < 12 ||
-    !/[a-z]/.test(contrasena) ||
-    !/[A-Z]/.test(contrasena) ||
-    !/[0-9]/.test(contrasena) ||
-    !/[^A-Za-z0-9]/.test(contrasena)
-  ) {
-    throw new Error(
-      'La contraseña debe tener al menos 12 caracteres, mayúscula, minúscula, número y símbolo.',
-    );
-  }
-  const { error: identidadError } = await cliente.auth.getUser();
-  if (identidadError) throw new Error('ENLACE_RECUPERACION_INVALIDO_O_VENCIDO');
-  const { error } = await cliente.auth.updateUser({ password: contrasena });
-  if (error) throw error;
-  await cliente.auth.signOut({ scope: 'global' });
-}
 
 /** Supabase Auth es la autoridad; IndexedDB solo conserva el perfil habilitado. */
 export async function iniciarSesionCentral(
@@ -174,27 +121,6 @@ async function establecerSesionCentral(
     });
   }
 
-  try {
-    const { data: aal, error: aalError } = await cliente.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (aalError) return fallo(errorNoDisponible(aalError));
-    if (aal.currentLevel !== 'aal2' && aal.nextLevel === 'aal2') {
-      return fallo({
-        codigo: 'MFA_REQUERIDA',
-        mensaje: 'Ingresa el código de tu aplicación autenticadora',
-        esperaMs: null,
-      });
-    }
-    if (perfil.rol === 'ADMINISTRADOR' && aal.currentLevel !== 'aal2') {
-      return fallo({
-        codigo: 'MFA_INSCRIPCION_REQUERIDA',
-        mensaje: 'Los administradores deben configurar autenticación de dos factores',
-        esperaMs: null,
-      });
-    }
-  } catch (causa) {
-    return fallo(errorNoDisponible(causa));
-  }
-
   const ahora = opciones.ahora();
   const sesion: SesionActiva = {
     usuarioId: crearUsuarioId(perfil.id),
@@ -223,73 +149,6 @@ async function establecerSesionCentral(
     await db.meta.put({ clave: CLAVE_SESION, valor: sesion });
   });
   return ok(sesion);
-}
-
-export async function prepararMfaCentral(
-  cliente: ClienteSupabase,
-  inscribir: boolean,
-): Promise<DesafioMfaCentral> {
-  const { data: factores, error: factoresError } = await cliente.auth.mfa.listFactors();
-  if (factoresError) throw factoresError;
-  const verificado = factores.totp[0];
-  if (verificado !== undefined) {
-    return { factorId: verificado.id, modo: 'VERIFICAR', qr: null, secreto: null };
-  }
-  if (!inscribir) throw new Error('FACTOR_MFA_NO_DISPONIBLE');
-  for (const factor of factores.all.filter(
-    (item) => item.factor_type === 'totp' && item.status === 'unverified',
-  )) {
-    await cliente.auth.mfa.unenroll({ factorId: factor.id });
-  }
-  const { data, error } = await cliente.auth.mfa.enroll({
-    factorType: 'totp',
-    friendlyName: 'Crearcos',
-  });
-  if (error) throw error;
-  return {
-    factorId: data.id,
-    modo: 'INSCRIBIR',
-    qr: data.totp.qr_code.startsWith('data:')
-      ? data.totp.qr_code
-      : `data:image/svg+xml;utf-8,${encodeURIComponent(data.totp.qr_code)}`,
-    secreto: data.totp.secret,
-  };
-}
-
-export async function completarMfaCentral(
-  db: BaseLocal,
-  cliente: ClienteSupabase,
-  desafio: DesafioMfaCentral,
-  codigo: string,
-  identificador: string,
-  opciones: OpcionesAuth,
-): Promise<Resultado<SesionActiva, ErrorAuth>> {
-  const limpio = codigo.replace(/\s/g, '');
-  if (!/^\d{6}$/.test(limpio)) {
-    return fallo({
-      codigo: 'MFA_REQUERIDA',
-      mensaje: 'El código debe tener seis dígitos',
-      esperaMs: null,
-    });
-  }
-  try {
-    const { error } = await cliente.auth.mfa.challengeAndVerify({
-      factorId: desafio.factorId,
-      code: limpio,
-    });
-    if (error) {
-      return fallo({
-        codigo: 'MFA_REQUERIDA',
-        mensaje: 'Código de autenticación inválido',
-        esperaMs: null,
-      });
-    }
-    const { data: auth, error: authError } = await cliente.auth.getUser();
-    if (authError) return fallo(errorNoDisponible(authError));
-    return await establecerSesionCentral(db, cliente, auth.user.id, identificador, opciones);
-  } catch (causa) {
-    return fallo(errorNoDisponible(causa));
-  }
 }
 
 /**

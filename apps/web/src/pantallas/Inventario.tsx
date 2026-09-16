@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import type { EstadoPieza, Evento, Pagina, TipoPieza } from '@crearcos/core';
+import type { EstadoPieza, Evento, Pagina, Pieza, TipoPieza } from '@crearcos/core';
 import {
+  actualizarPieza,
+  actualizarPiezaOffline,
+  actualizarProducto,
+  actualizarProductoOffline,
   componentesDeKit,
   contarPiezasPorEstado,
   crearProducto,
+  crearProductoOffline,
+  eliminarPieza,
+  eliminarPiezaOffline,
+  eliminarProducto,
+  eliminarProductoOffline,
   historialDePieza,
   listarCatalogo,
   listarPiezas,
   registrarPieza,
+  registrarPiezaOffline,
   type CodigoErrorInventario,
   type FilaCatalogo,
   type PiezaConProducto,
@@ -51,6 +61,9 @@ const TITULO_ERROR_ALTA: Readonly<Record<CodigoErrorInventario, string>> = {
   PIEZA_YA_EXISTE: 'La pieza ya existe',
   PADRE_NO_ENCONTRADO: 'Kit padre no encontrado',
   COSTO_INVALIDO: 'Costo base inválido',
+  PRODUCTO_TIENE_PIEZAS: 'Producto en uso',
+  PIEZA_NO_EDITABLE: 'Pieza no editable',
+  PIEZA_TIENE_COMPONENTES: 'Kit con componentes',
 };
 
 interface ConteosInventario {
@@ -102,7 +115,7 @@ function detalleEvento(evento: Evento): string {
 }
 
 export function Inventario(): ReactElement {
-  const { db, sesion, administracionCentral } = useApp();
+  const { db, sesion, ahora, administracionCentral, centralConfigurado } = useApp();
   const [pagina, setPagina] = useState(1);
   const [busqueda, setBusqueda] = useState('');
   const [estado, setEstado] = useState<EstadoPieza | ''>('');
@@ -117,7 +130,10 @@ export function Inventario(): ReactElement {
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
   const [catalogo, setCatalogo] = useState<readonly FilaCatalogo[]>([]);
   const [altaAbierta, setAltaAbierta] = useState(false);
+  const [catalogoAbierto, setCatalogoAbierto] = useState(false);
   const [modoAlta, setModoAlta] = useState<ModoAlta>('pieza');
+  const [productoEditando, setProductoEditando] = useState<FilaCatalogo | null>(null);
+  const [piezaEditando, setPiezaEditando] = useState<Pieza | null>(null);
   const [procesandoAlta, setProcesandoAlta] = useState(false);
   const [mensajeAlta, setMensajeAlta] = useState<MensajeAlta | null>(null);
   const [productoSku, setProductoSku] = useState('');
@@ -187,12 +203,39 @@ export function Inventario(): ReactElement {
 
   const abrirAlta = (modo: ModoAlta): void => {
     setSeleccionado(null);
+    setProductoEditando(null);
+    setPiezaEditando(null);
     setModoAlta(modo);
     setMensajeAlta(null);
     setAltaAbierta(true);
     if (modo === 'pieza' && piezaSku === '' && catalogo[0] !== undefined) {
       setPiezaSku(catalogo[0].sku);
     }
+  };
+
+  const abrirEdicionProducto = (producto: FilaCatalogo): void => {
+    setCatalogoAbierto(false);
+    setProductoEditando(producto);
+    setPiezaEditando(null);
+    setModoAlta('producto');
+    setProductoSku(producto.sku);
+    setProductoNombre(producto.nombre);
+    setProductoTipo(producto.tipo);
+    setProductoCosto((producto.costoBase / 100).toFixed(2));
+    setMensajeAlta(null);
+    setAltaAbierta(true);
+  };
+
+  const abrirEdicionPieza = (pieza: Pieza): void => {
+    setSeleccionado(null);
+    setProductoEditando(null);
+    setPiezaEditando(pieza);
+    setModoAlta('pieza');
+    setPiezaCodigo(pieza.codigo);
+    setPiezaSku(pieza.sku);
+    setPiezaPadre(pieza.parentCodigo ?? '');
+    setMensajeAlta(null);
+    setAltaAbierta(true);
   };
 
   const guardarProducto = async (): Promise<void> => {
@@ -208,15 +251,27 @@ export function Inventario(): ReactElement {
     try {
       const dolares = Number(productoCosto.replace(',', '.'));
       const datos = {
-        sku: productoSku.trim(),
+        sku: productoEditando?.sku ?? productoSku.trim(),
         nombre: productoNombre.trim(),
         tipo: productoTipo,
         costoBase: Math.round(dolares * 100),
       };
+      const guardarEnCola = centralConfigurado && administracionCentral === null;
       const respuesta =
-        administracionCentral === null
-          ? await crearProducto(db, datos, sesion)
-          : { ok: true as const, valor: await administracionCentral.crearProducto(datos) };
+        productoEditando === null
+          ? guardarEnCola
+            ? await crearProductoOffline(db, datos, sesion, { ahora })
+            : administracionCentral === null
+              ? await crearProducto(db, datos, sesion)
+              : { ok: true as const, valor: await administracionCentral.crearProducto(datos) }
+          : guardarEnCola
+            ? await actualizarProductoOffline(db, productoEditando, datos, sesion, { ahora })
+            : administracionCentral === null
+              ? await actualizarProducto(db, productoEditando, datos, sesion)
+              : {
+                  ok: true as const,
+                  valor: await administracionCentral.actualizarProducto(productoEditando, datos),
+                };
       if (!respuesta.ok) {
         setMensajeAlta({
           tipo: 'error',
@@ -231,11 +286,14 @@ export function Inventario(): ReactElement {
       setProductoSku('');
       setProductoNombre('');
       setProductoCosto('');
-      setModoAlta('pieza');
+      const eraEdicion = productoEditando !== null;
+      setProductoEditando(null);
+      if (eraEdicion) setAltaAbierta(false);
+      else setModoAlta('pieza');
       setMensajeAlta({
         tipo: 'exito',
-        titulo: 'Producto agregado al catálogo',
-        texto: `${respuesta.valor.sku} · ${formatearUSD(respuesta.valor.costoBase)}. Ya puedes registrar su primera pieza.`,
+        titulo: eraEdicion ? 'Producto actualizado' : 'Producto agregado al catálogo',
+        texto: `${respuesta.valor.sku} · ${formatearUSD(respuesta.valor.costoBase)}${guardarEnCola ? ' · pendiente de sincronización' : ''}.`,
       });
     } catch (excepcion) {
       setMensajeAlta({
@@ -258,13 +316,29 @@ export function Inventario(): ReactElement {
         sku: piezaSku,
         ...(piezaPadre.trim() === '' ? {} : { parentCodigo: piezaPadre.trim() }),
       };
+      const guardarEnCola = centralConfigurado && administracionCentral === null;
       const respuesta =
-        administracionCentral === null
-          ? await registrarPieza(db, datos, sesion)
-          : {
-              ok: true as const,
-              valor: await administracionCentral.registrarPieza(datos, sesion.dispositivoId),
-            };
+        piezaEditando === null
+          ? guardarEnCola
+            ? await registrarPiezaOffline(db, datos, sesion, { ahora })
+            : administracionCentral === null
+              ? await registrarPieza(db, datos, sesion)
+              : {
+                  ok: true as const,
+                  valor: await administracionCentral.registrarPieza(datos, sesion.dispositivoId),
+                }
+          : guardarEnCola
+            ? await actualizarPiezaOffline(db, piezaEditando, datos, sesion, { ahora })
+            : administracionCentral === null
+              ? await actualizarPieza(db, piezaEditando, datos, sesion)
+              : {
+                  ok: true as const,
+                  valor: await administracionCentral.actualizarPieza(
+                    piezaEditando,
+                    datos,
+                    sesion.dispositivoId,
+                  ),
+                };
       if (!respuesta.ok) {
         setMensajeAlta({
           tipo: 'error',
@@ -275,10 +349,13 @@ export function Inventario(): ReactElement {
       }
       setPiezaCodigo('');
       setPiezaPadre('');
+      const eraEdicion = piezaEditando !== null;
+      setPiezaEditando(null);
+      if (eraEdicion) setAltaAbierta(false);
       setMensajeAlta({
         tipo: 'exito',
-        titulo: 'Pieza registrada',
-        texto: `${respuesta.valor.codigo} quedó disponible en bodega central.`,
+        titulo: eraEdicion ? 'Pieza actualizada' : 'Pieza registrada',
+        texto: `${respuesta.valor.codigo} quedó disponible en bodega central${guardarEnCola ? ' y pendiente de sincronización' : ''}.`,
       });
       setPagina(1);
       await cargar();
@@ -288,6 +365,57 @@ export function Inventario(): ReactElement {
         titulo: 'No se pudo registrar la pieza',
         texto: mensajeExcepcion(excepcion),
       });
+    } finally {
+      setProcesandoAlta(false);
+    }
+  };
+
+  const borrarProducto = async (producto: FilaCatalogo): Promise<void> => {
+    if (sesion === null) return;
+    if (!globalThis.confirm(`¿Eliminar el producto ${producto.sku}?`)) return;
+    setProcesandoAlta(true);
+    try {
+      const guardarEnCola = centralConfigurado && administracionCentral === null;
+      const respuesta = guardarEnCola
+        ? await eliminarProductoOffline(db, producto, sesion, { ahora })
+        : administracionCentral === null
+          ? await eliminarProducto(db, producto, sesion)
+          : (await administracionCentral.eliminarProducto(producto),
+            { ok: true as const, valor: true });
+      if (!respuesta.ok) throw new Error(respuesta.error.mensaje);
+      setCatalogo(await listarCatalogo(db));
+    } catch (excepcion) {
+      setError(mensajeExcepcion(excepcion));
+    } finally {
+      setProcesandoAlta(false);
+    }
+  };
+
+  const borrarPieza = async (pieza: Pieza): Promise<void> => {
+    if (sesion === null) return;
+    if (
+      !globalThis.confirm(
+        `¿Eliminar la pieza ${pieza.codigo}? Solo se permite si está disponible en bodega central.`,
+      )
+    )
+      return;
+    setProcesandoAlta(true);
+    try {
+      const guardarEnCola = centralConfigurado && administracionCentral === null;
+      const respuesta = guardarEnCola
+        ? await eliminarPiezaOffline(db, pieza, sesion, { ahora })
+        : administracionCentral === null
+          ? await eliminarPieza(db, pieza, sesion)
+          : (await administracionCentral.eliminarPieza(pieza, sesion.dispositivoId),
+            {
+              ok: true as const,
+              valor: true,
+            });
+      if (!respuesta.ok) throw new Error(respuesta.error.mensaje);
+      setSeleccionado(null);
+      await cargar();
+    } catch (excepcion) {
+      setError(mensajeExcepcion(excepcion));
     } finally {
       setProcesandoAlta(false);
     }
@@ -311,6 +439,15 @@ export function Inventario(): ReactElement {
         acciones={
           sesion?.rol === 'ADMINISTRADOR' ? (
             <div className="acciones-inventario">
+              <Boton
+                variante="fantasma"
+                icono="inventario"
+                onClick={() => {
+                  setCatalogoAbierto(true);
+                }}
+              >
+                Gestionar catálogo
+              </Boton>
               <Boton
                 variante="secundario"
                 icono="mas"
@@ -587,6 +724,94 @@ export function Inventario(): ReactElement {
         )}
       </section>
 
+      {catalogoAbierto && (
+        <div className="drawer" role="dialog" aria-modal="true" aria-label="Catálogo de productos">
+          <button
+            type="button"
+            className="drawer__fondo"
+            aria-label="Cerrar catálogo"
+            onClick={() => {
+              setCatalogoAbierto(false);
+            }}
+          />
+          <aside className="drawer__panel">
+            <header className="drawer__cabecera">
+              <div>
+                <p className="sobrelinea">Administración de inventario</p>
+                <h2>Catálogo de productos</h2>
+              </div>
+              <button
+                type="button"
+                className="boton-icono"
+                aria-label="Cerrar"
+                onClick={() => {
+                  setCatalogoAbierto(false);
+                }}
+              >
+                <Icono nombre="cerrar" />
+              </button>
+            </header>
+            <div className="drawer__contenido">
+              {catalogo.length === 0 ? (
+                <Vacio
+                  icono="inventario"
+                  titulo="No hay productos"
+                  texto="Crea la primera referencia comercial del inventario."
+                />
+              ) : (
+                <div className="componentes-kit-lista">
+                  {[...catalogo]
+                    .sort((a, b) => a.nombre.localeCompare(b.nombre))
+                    .map((producto) => (
+                      <div key={producto.sku}>
+                        <code>{producto.sku}</code>
+                        <span>
+                          <strong>{producto.nombre}</strong>
+                          <small>
+                            {producto.tipo} · {formatearUSD(producto.costoBase)}
+                          </small>
+                        </span>
+                        <button
+                          type="button"
+                          className="boton-icono boton-icono--sutil"
+                          aria-label={`Editar ${producto.nombre}`}
+                          onClick={() => {
+                            abrirEdicionProducto(producto);
+                          }}
+                        >
+                          <Icono nombre="editar" tamano={16} />
+                        </button>
+                        <button
+                          type="button"
+                          className="boton-icono boton-icono--sutil"
+                          aria-label={`Eliminar ${producto.nombre}`}
+                          disabled={procesandoAlta}
+                          onClick={() => {
+                            void borrarProducto(producto);
+                          }}
+                        >
+                          <Icono nombre="cerrar" tamano={16} />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+            <footer className="drawer__pie">
+              <Boton
+                icono="mas"
+                onClick={() => {
+                  setCatalogoAbierto(false);
+                  abrirAlta('producto');
+                }}
+              >
+                Nuevo producto
+              </Boton>
+            </footer>
+          </aside>
+        </div>
+      )}
+
       {altaAbierta && (
         <div className="drawer" role="dialog" aria-modal="true" aria-label="Alta de inventario">
           <button
@@ -607,7 +832,15 @@ export function Inventario(): ReactElement {
             <header className="drawer__cabecera">
               <div>
                 <p className="sobrelinea">Administración de inventario</p>
-                <h2>{modoAlta === 'producto' ? 'Nuevo producto' : 'Nueva pieza'}</h2>
+                <h2>
+                  {modoAlta === 'producto'
+                    ? productoEditando === null
+                      ? 'Nuevo producto'
+                      : 'Editar producto'
+                    : piezaEditando === null
+                      ? 'Nueva pieza'
+                      : 'Editar pieza'}
+                </h2>
               </div>
               <button
                 type="button"
@@ -621,33 +854,36 @@ export function Inventario(): ReactElement {
               </button>
             </header>
             <div className="drawer__contenido formulario-drawer">
-              <div className="tabs tabs--ancho" role="tablist" aria-label="Tipo de alta">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={modoAlta === 'producto'}
-                  className={modoAlta === 'producto' ? 'activo' : ''}
-                  onClick={() => {
-                    setModoAlta('producto');
-                    setMensajeAlta(null);
-                  }}
-                >
-                  Producto de catálogo
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={modoAlta === 'pieza'}
-                  className={modoAlta === 'pieza' ? 'activo' : ''}
-                  onClick={() => {
-                    setModoAlta('pieza');
-                    setMensajeAlta(null);
-                    if (piezaSku === '' && catalogo[0] !== undefined) setPiezaSku(catalogo[0].sku);
-                  }}
-                >
-                  Pieza física
-                </button>
-              </div>
+              {productoEditando === null && piezaEditando === null && (
+                <div className="tabs tabs--ancho" role="tablist" aria-label="Tipo de alta">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={modoAlta === 'producto'}
+                    className={modoAlta === 'producto' ? 'activo' : ''}
+                    onClick={() => {
+                      setModoAlta('producto');
+                      setMensajeAlta(null);
+                    }}
+                  >
+                    Producto de catálogo
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={modoAlta === 'pieza'}
+                    className={modoAlta === 'pieza' ? 'activo' : ''}
+                    onClick={() => {
+                      setModoAlta('pieza');
+                      setMensajeAlta(null);
+                      if (piezaSku === '' && catalogo[0] !== undefined)
+                        setPiezaSku(catalogo[0].sku);
+                    }}
+                  >
+                    Pieza física
+                  </button>
+                </div>
+              )}
 
               {mensajeAlta !== null && <MensajeEstado {...mensajeAlta} />}
 
@@ -664,6 +900,7 @@ export function Inventario(): ReactElement {
                     <span>SKU</span>
                     <input
                       value={productoSku}
+                      disabled={productoEditando !== null}
                       onChange={(evento) => {
                         setProductoSku(evento.target.value);
                       }}
@@ -738,6 +975,7 @@ export function Inventario(): ReactElement {
                     <span>Código físico</span>
                     <input
                       value={piezaCodigo}
+                      disabled={piezaEditando !== null}
                       onChange={(evento) => {
                         setPiezaCodigo(evento.target.value);
                       }}
@@ -814,8 +1052,12 @@ export function Inventario(): ReactElement {
                   {procesandoAlta
                     ? 'Guardando…'
                     : modoAlta === 'producto'
-                      ? 'Crear producto'
-                      : 'Registrar pieza'}
+                      ? productoEditando === null
+                        ? 'Crear producto'
+                        : 'Guardar producto'
+                      : piezaEditando === null
+                        ? 'Registrar pieza'
+                        : 'Guardar pieza'}
                 </Boton>
               </div>
             </footer>
@@ -978,6 +1220,30 @@ export function Inventario(): ReactElement {
                 )}
               </section>
             </div>
+            {sesion?.rol === 'ADMINISTRADOR' && (
+              <footer className="drawer__pie drawer__pie--distribuido">
+                <Boton
+                  type="button"
+                  variante="peligro"
+                  disabled={procesandoAlta}
+                  onClick={() => {
+                    void borrarPieza(seleccionado.pieza);
+                  }}
+                >
+                  Eliminar pieza
+                </Boton>
+                <Boton
+                  type="button"
+                  icono="editar"
+                  disabled={seleccionado.pieza.estado !== 'EN_BODEGA_CENTRAL'}
+                  onClick={() => {
+                    abrirEdicionPieza(seleccionado.pieza);
+                  }}
+                >
+                  Editar pieza
+                </Boton>
+              </footer>
+            )}
           </aside>
         </div>
       )}

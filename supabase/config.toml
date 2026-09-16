@@ -159,7 +159,11 @@ site_url = "http://127.0.0.1:5173"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://127.0.0.1:5173", "http://localhost:5173"]
+additional_redirect_urls = [
+  "http://127.0.0.1:5173",
+  "http://localhost:5173",
+  "http://[::1]:5173",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -299,8 +303,8 @@ max_enrolled_factors = 10
 
 # Control MFA via App Authenticator (TOTP)
 [auth.mfa.totp]
-enroll_enabled = true
-verify_enabled = true
+enroll_enabled = false
+verify_enabled = false
 
 # Configure MFA via Phone Messaging
 [auth.mfa.phone]
@@ -380,6 +384,18 @@ policy = "per_worker"
 inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
+
+# Estas funciones autentican dentro del handler con auth.getUser(). El proyecto
+# usa JWT de usuario ES256 y claves sb_publishable_; desactivar el filtro legado
+# del gateway evita 401 previos al handler sin relajar la autorizacion real.
+[functions.sync]
+verify_jwt = false
+
+[functions.administration]
+verify_jwt = false
+
+[functions.prepare-production]
+verify_jwt = false
 
 # Este endpoint no usa Supabase Auth: valida un token opaco de alta entropia y,
 # tras el canje, una sesion freelance limitada. El handler aplica ambas

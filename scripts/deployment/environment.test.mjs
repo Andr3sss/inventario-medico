@@ -9,7 +9,6 @@ const valida = {
   VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_prueba_no_secreta',
   VITE_ENABLE_LOCAL_DEMO: 'false',
   VITE_LOCAL_DEMO_PASSWORD: '',
-  AUTH_REDIRECT_URL: 'https://staging.inventario.crearcos.test/actualizar-contrasena',
   ALLOWED_ORIGINS: 'https://staging.inventario.crearcos.test',
   SUPABASE_PROJECT_ID: 'abcdefghijklmnopqrst',
   CLOUDFLARE_PAGES_PROJECT: 'crearcos-inventario',
@@ -47,14 +46,10 @@ test('rechaza demo local y claves privilegiadas', () => {
   );
 });
 
-test('rechaza HTTP, redirects divergentes y varios origenes', () => {
+test('rechaza HTTP y varios origenes', () => {
   assert.throws(
     () => leerConfiguracionDespliegue({ ...valida, PUBLIC_APP_URL: 'http://inventario.test' }),
     /HTTPS/,
-  );
-  assert.throws(
-    () => leerConfiguracionDespliegue({ ...valida, AUTH_REDIRECT_URL: 'https://otro.test/x' }),
-    /debe ser/,
   );
   assert.throws(
     () =>

@@ -1,7 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
 import { corsHeaders, origenPermitido, responderPreflight } from '../_shared/http.ts';
-import { validarMfaServidor } from '../_shared/auth.ts';
+import { validarPerfilActivoServidor } from '../_shared/auth.ts';
 
 function response(req: Request, status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -37,13 +37,8 @@ Deno.serve(async (req: Request) => {
   const service = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const mfaError = await validarMfaServidor(
-    userClient,
-    service,
-    authData.user.id,
-    authorization.replace(/^Bearer\s+/i, ''),
-  );
-  if (mfaError !== null) return response(req, 403, { error: mfaError });
+  const perfilError = await validarPerfilActivoServidor(service, authData.user.id);
+  if (perfilError !== null) return response(req, 403, { error: perfilError });
   const { data: profile } = await service
     .from('perfiles')
     .select('rol,activo,origen')
