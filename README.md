@@ -7,6 +7,25 @@ mantiene la fuente central.
 
 ---
 
+## Descargar la aplicación Android
+
+La versión Android se puede instalar en teléfonos y tabletas con **Android 7.0 o
+posterior**.
+
+**[Descargar Crearcos Inventario para Android](https://github.com/Crearcos/inventario-medico/releases/download/v0.0.1-debug/crearcos-inventario-debug.apk)**
+
+Escanea el siguiente código QR desde el dispositivo Android para iniciar la descarga:
+
+[![Código QR para descargar Crearcos Inventario](docs/assets/qr-descarga-crearcos-apk.png)](https://github.com/Crearcos/inventario-medico/releases/download/v0.0.1-debug/crearcos-inventario-debug.apk)
+
+> [!NOTE]
+> Esta compilación está firmada para pruebas internas. Android puede solicitar permiso
+> para instalar aplicaciones procedentes del navegador o del gestor de archivos.
+
+[Ver la publicación y sus detalles](https://github.com/Crearcos/inventario-medico/releases/tag/v0.0.1-debug)
+
+---
+
 > [!CAUTION]
 > **AVISO DE SEGURIDAD CRÍTICO — LEE ESTO ANTES DE CONTINUAR**
 >
